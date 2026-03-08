@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import InstallButton from "./InstallButton";
 import BookmarkSetupPanel from "./BookmarkSetupPanel";
+import SyncPanel from "./SyncPanel";
 
 export default function LibraryView({
   papers,
@@ -8,13 +9,25 @@ export default function LibraryView({
   importing,
   receiveMessage,
   defaultInput,
+  deviceIdentity,
+  pairedDevices,
+  nearbyState,
+  pairRouteInviteId,
+  onCreateInvite,
+  onCloseInvite,
+  onCopyInviteLink,
+  onRenameThisDevice,
+  onRenamePeer,
+  onForgetPeer,
+  onSyncNow,
   onClearInput,
   onSubmitUrl,
   onOpenPaper,
   onExportPaper,
   onDeletePaper,
   onExportLibrary,
-  onImportFile
+  onImportFile,
+  formatPairSyncStatus
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
   const [showBookmarkSetup, setShowBookmarkSetup] = useState(false);
@@ -36,16 +49,17 @@ export default function LibraryView({
           <p className="eyebrow">Offline-first ar5iv reading</p>
           <h1>ar5iv Reader</h1>
           <p className="hero-copy">
-            Paste an arXiv URL, use the built-in ArXiv opener flow, or save
-            papers for offline reading with figure blobs stored in IndexedDB.
+            Paste an arXiv URL, open from the bookmark flow, save papers for offline
+            reading, and nearby-sync the same library when two paired devices are
+            open on the same network.
           </p>
         </div>
         <div className="hero-actions">
           <button className="primary-button" type="button" onClick={onExportLibrary}>
-            Export Library IDs
+            Export Backup
           </button>
           <label className="ghost-button upload-button">
-            {importing ? "Importing…" : "Import Library IDs"}
+            {importing ? "Importing…" : "Import Backup"}
             <input
               type="file"
               accept="application/json"
@@ -72,6 +86,21 @@ export default function LibraryView({
       <BookmarkSetupPanel
         open={showBookmarkSetup}
         onClose={() => setShowBookmarkSetup(false)}
+      />
+
+      <SyncPanel
+        deviceIdentity={deviceIdentity}
+        pairedDevices={pairedDevices}
+        nearbyState={nearbyState}
+        pairRouteInviteId={pairRouteInviteId}
+        onCreateInvite={onCreateInvite}
+        onCloseInvite={onCloseInvite}
+        onCopyInviteLink={onCopyInviteLink}
+        onRenameThisDevice={onRenameThisDevice}
+        onRenamePeer={onRenamePeer}
+        onForgetPeer={onForgetPeer}
+        onSyncNow={onSyncNow}
+        formatPairSyncStatus={formatPairSyncStatus}
       />
 
       <section className="card form-card">
@@ -123,7 +152,7 @@ export default function LibraryView({
       <section className="card library-card">
         <div className="section-heading">
           <h2>Saved Library</h2>
-          <p>Local papers render from IndexedDB even when the network is gone.</p>
+          <p>Saved papers stay local for offline reading and can be pulled to paired devices.</p>
         </div>
 
         {loading ? <p className="empty-state">Loading your library…</p> : null}
@@ -140,7 +169,7 @@ export default function LibraryView({
                 <p className="paper-id">{paper.id}</p>
                 <h3>{paper.title}</h3>
                 <p className="paper-meta">
-                  Saved {new Date(paper.savedAt).toLocaleString()}
+                  Updated {new Date(paper.updatedAt || paper.savedAt).toLocaleString()}
                 </p>
                 <p className="paper-meta">
                   {paper.assetUrls.length} cached figure

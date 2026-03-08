@@ -4,23 +4,40 @@ import ReaderView from "./components/ReaderView";
 import Toast from "./components/Toast";
 import {
   deletePaper,
-  getSetting,
   getAssetRecordsForPaper,
   getPaper,
+  getSetting,
   listPapers,
   savePaper,
   setSetting
 } from "./lib/db";
 import {
   downloadBlob,
-  exportLibraryIds,
+  exportLibraryBackup,
   exportPaperHtml,
-  importLibraryIds
+  importLibraryBackup
 } from "./lib/exportImport";
 import { buildPdfFallbackPaper, fetchPaperById } from "./lib/fetchPaper";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
 import { extractPaperMetadata, sanitizePaperHtml } from "./lib/sanitizePaper";
+import { getOrCreateDeviceIdentity, updateDeviceIdentityLabel } from "./lib/nearby/deviceIdentity";
+import { formatPairSyncStatus } from "./lib/nearby/merge";
+import {
+  forgetPairedDevice,
+  getPairedDevice,
+  listPairedDevices,
+  pairDevices,
+  renamePairedDevice,
+  touchPairedDevice
+} from "./lib/nearby/pairStore";
+import { NearbyRelayClient } from "./lib/nearby/relayClient";
+import { runLibrarySyncSession, runPairSession } from "./lib/nearby/syncProtocol";
+import { NearbyWebRtcSession } from "./lib/nearby/webrtcSession";
+
+const NEARBY_SIGNAL_URL = import.meta.env.VITE_NEARBY_SIGNAL_URL || "";
+const APP_VERSION = "0.3.0";
+const AUTO_SYNC_INTERVAL_MS = 60_000;
 
 export default function App() {
   const [routeVersion, setRouteVersion] = useState(0);
@@ -31,16 +48,60 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [libraryInput, setLibraryInput] = useState("");
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
+  const [deviceIdentity, setDeviceIdentity] = useState(null);
+  const [pairedDevices, setPairedDevices] = useState([]);
+  const [nearbyState, setNearbyState] = useState({
+    relayStatus: NEARBY_SIGNAL_URL ? "idle" : "unavailable",
+    summaryStatus: NEARBY_SIGNAL_URL ? "" : "relay-unavailable",
+    onlinePeerIds: [],
+    currentInvite: null,
+    joiningInvite: false,
+    activeSessionCount: 0
+  });
   const revokeAssetsRef = useRef(() => {});
+  const relayClientRef = useRef(null);
+  const sessionsRef = useRef(new Map());
+  const deviceIdentityRef = useRef(null);
+  const pairedDevicesRef = useRef([]);
+  const onlinePeerIdsRef = useRef(new Set());
+  const activeInviteRef = useRef("");
+  const pairJoinAttemptRef = useRef("");
+  const lastAutoSyncAtRef = useRef(0);
   const route = parseRoute();
+
+  useEffect(() => {
+    deviceIdentityRef.current = deviceIdentity;
+  }, [deviceIdentity]);
+
+  useEffect(() => {
+    pairedDevicesRef.current = pairedDevices;
+  }, [pairedDevices]);
 
   useEffect(() => {
     void refreshLibrary();
     void loadSettings();
 
     const syncRoute = () => setRouteVersion((value) => value + 1);
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        relayClientRef.current?.start();
+        void triggerNearbySync("visible");
+      }
+    };
+
     window.addEventListener("popstate", syncRoute);
-    return () => window.removeEventListener("popstate", syncRoute);
+    document.addEventListener("visibilitychange", handleVisible);
+
+    return () => {
+      window.removeEventListener("popstate", syncRoute);
+      document.removeEventListener("visibilitychange", handleVisible);
+      revokeAssetsRef.current();
+      relayClientRef.current?.stop();
+      for (const session of sessionsRef.current.values()) {
+        session.close();
+      }
+      sessionsRef.current.clear();
+    };
   }, []);
 
   useEffect(() => {
@@ -202,8 +263,57 @@ export default function App() {
   }, [route.kind, route.payload?.text, route.payload?.title, route.payload?.url]);
 
   useEffect(() => {
-    return () => revokeAssetsRef.current();
-  }, []);
+    if (!deviceIdentity) {
+      return;
+    }
+
+    if (!NEARBY_SIGNAL_URL) {
+      setNearbyState((current) => ({
+        ...current,
+        relayStatus: "unavailable",
+        summaryStatus: "relay-unavailable"
+      }));
+      return;
+    }
+
+    if (!relayClientRef.current) {
+      const relay = new NearbyRelayClient({
+        url: NEARBY_SIGNAL_URL,
+        deviceId: deviceIdentity.deviceId,
+        label: deviceIdentity.label,
+        appVersion: APP_VERSION
+      });
+      relay.addEventListener("status", handleRelayStatus);
+      relay.addEventListener("message", handleRelayMessage);
+      relayClientRef.current = relay;
+    }
+
+    relayClientRef.current.setIdentity(deviceIdentity);
+    relayClientRef.current.setPeerIds(pairedDevices.map((record) => record.peerDeviceId));
+    relayClientRef.current.start();
+  }, [deviceIdentity?.deviceId, deviceIdentity?.label, pairedDevices]);
+
+  useEffect(() => {
+    if (!deviceIdentity || !route.pairInviteId || !relayClientRef.current) {
+      return;
+    }
+
+    if (nearbyState.relayStatus !== "connected") {
+      return;
+    }
+
+    if (pairJoinAttemptRef.current === route.pairInviteId) {
+      return;
+    }
+
+    pairJoinAttemptRef.current = route.pairInviteId;
+    setNearbyState((current) => ({
+      ...current,
+      joiningInvite: true
+    }));
+    relayClientRef.current.joinInvite(route.pairInviteId);
+  }, [deviceIdentity?.deviceId, nearbyState.relayStatus, route.pairInviteId]);
+
   const receiveMessage =
     route.kind === "receive" && reader.status === "error" ? reader.error : "";
   const defaultInput =
@@ -221,10 +331,23 @@ export default function App() {
     setLibrary({ loading: false, papers });
   }
 
+  async function refreshPairedDevices() {
+    const nextPairs = await listPairedDevices().catch(() => []);
+    setPairedDevices(nextPairs);
+    return nextPairs;
+  }
+
   async function loadSettings() {
     try {
-      const stored = await getSetting("pdfFallbackNoticeEnabled");
-      setFallbackNoticeEnabled(stored?.value !== false);
+      const [fallbackSetting, nextIdentity] = await Promise.all([
+        getSetting("pdfFallbackNoticeEnabled"),
+        getOrCreateDeviceIdentity()
+      ]);
+
+      setFallbackNoticeEnabled(fallbackSetting?.value !== false);
+      setDeviceIdentity(nextIdentity);
+      await refreshPairedDevices();
+      void triggerNearbySync("startup");
     } catch (error) {
       console.error("Settings load failed", error);
     }
@@ -263,11 +386,7 @@ export default function App() {
   }
 
   async function handleSave() {
-    if (
-      !reader.paper ||
-      reader.paper.mode !== "session" ||
-      reader.paper.view !== "html"
-    ) {
+    if (!reader.paper || reader.paper.mode !== "session" || reader.paper.view !== "html") {
       if (reader.paper?.view === "pdf") {
         showToast("PDF fallback sessions cannot be saved offline yet.");
       }
@@ -276,10 +395,13 @@ export default function App() {
 
     setSaving(true);
     try {
-      await savePaper(reader.paper);
+      await savePaper(reader.paper, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local"
+      });
       await refreshLibrary();
       showToast("Saved for offline reading.");
       navigate(`/?paper=${encodeURIComponent(reader.paper.id)}`);
+      void triggerNearbySync("save");
     } catch (error) {
       showToast("Save failed.");
       setReader((current) => ({
@@ -307,12 +429,15 @@ export default function App() {
     }
 
     try {
-      await deletePaper(paperId);
+      await deletePaper(paperId, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local"
+      });
       await refreshLibrary();
       showToast("Removed from library.");
       if (parseRoute().paperId === paperId) {
         navigate("/");
       }
+      void triggerNearbySync("delete");
     } catch (error) {
       showToast(stringifyError(error));
     }
@@ -320,9 +445,9 @@ export default function App() {
 
   async function handleExportLibrary() {
     try {
-      const blob = await exportLibraryIds();
-      downloadBlob(blob, "paper-library-ids.json");
-      showToast("Downloaded library ID export.");
+      const blob = await exportLibraryBackup();
+      downloadBlob(blob, `ar5iv-reader-backup-${new Date().toISOString().slice(0, 10)}.json`);
+      showToast("Downloaded full library backup.");
     } catch (error) {
       showToast(stringifyError(error));
     }
@@ -331,21 +456,469 @@ export default function App() {
   async function handleImportLibrary(file) {
     setImporting(true);
     try {
-      const { importedIds, failedIds } = await importLibraryIds(file);
+      await importLibraryBackup(file);
       await refreshLibrary();
-
-      if (failedIds.length) {
-        showToast(
-          `Imported ${importedIds.length}. Failed: ${failedIds.join(", ")}`
-        );
-      } else {
-        showToast(`Imported ${importedIds.length} paper IDs.`);
-      }
+      setRouteVersion((value) => value + 1);
+      showToast("Imported library backup.");
+      void triggerNearbySync("import");
     } catch (error) {
       showToast(stringifyError(error));
     } finally {
       setImporting(false);
     }
+  }
+
+  async function handleRelayStatus(event) {
+    const relayStatus = event.detail;
+    setNearbyState((current) => ({
+      ...current,
+      relayStatus,
+      summaryStatus:
+        relayStatus === "connected"
+          ? current.summaryStatus === "relay-unavailable"
+            ? ""
+            : current.summaryStatus
+          : relayStatus === "error"
+            ? "relay-unavailable"
+            : current.summaryStatus
+    }));
+  }
+
+  async function handleRelayMessage(event) {
+    const message = event.detail;
+
+    if (message.type === "peer-online") {
+      onlinePeerIdsRef.current.add(message.peerDeviceId);
+      setNearbyState((current) => ({
+        ...current,
+        onlinePeerIds: [...onlinePeerIdsRef.current].sort(),
+        summaryStatus: current.summaryStatus === "syncing" ? current.summaryStatus : ""
+      }));
+      await touchPairedDevice(message.peerDeviceId, {
+        peerLabel: message.peerLabel,
+        lastSeenAt: Date.now()
+      });
+      await refreshPairedDevices();
+      void triggerNearbySync("peer-online", {
+        peerId: message.peerDeviceId
+      });
+      return;
+    }
+
+    if (message.type === "peer-offline") {
+      onlinePeerIdsRef.current.delete(message.peerDeviceId);
+      setNearbyState((current) => ({
+        ...current,
+        onlinePeerIds: [...onlinePeerIdsRef.current].sort(),
+        summaryStatus:
+          current.activeSessionCount > 0
+            ? current.summaryStatus
+            : onlinePeerIdsRef.current.size
+              ? ""
+              : "no-peer"
+      }));
+      return;
+    }
+
+    if (message.type === "invite-created") {
+      activeInviteRef.current = message.inviteId;
+      setNearbyState((current) => ({
+        ...current,
+        currentInvite: {
+          inviteId: message.inviteId,
+          expiresAt: message.expiresAt,
+          link: buildPairInviteLink(message.inviteId)
+        },
+        joiningInvite: false
+      }));
+      return;
+    }
+
+    if (message.type === "invite-joined") {
+      setNearbyState((current) => ({
+        ...current,
+        joiningInvite: false
+      }));
+      if (new URL(window.location.href).searchParams.get("pair") === message.inviteId) {
+        clearPairQueryParam();
+      }
+
+      if (activeInviteRef.current === message.inviteId) {
+        activeInviteRef.current = "";
+        void startPairSession(
+          {
+            deviceId: message.peerDeviceId,
+            label: message.peerLabel
+          },
+          { initiator: true }
+        );
+      }
+      return;
+    }
+
+    if (message.type === "signal") {
+      void handleIncomingSignal(message);
+      return;
+    }
+
+    if (message.type === "error") {
+      if (new URL(window.location.href).searchParams.get("pair")) {
+        clearPairQueryParam();
+      }
+
+      setNearbyState((current) => ({
+        ...current,
+        joiningInvite: false,
+        summaryStatus:
+          message.code === "invite_not_found" ? "pairing-expired" : current.summaryStatus
+      }));
+
+      if (message.code === "invite_not_found") {
+        showToast("That nearby pairing link has expired.");
+      }
+    }
+  }
+
+  async function createInvite() {
+    if (!NEARBY_SIGNAL_URL || !relayClientRef.current) {
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "relay-unavailable"
+      }));
+      return;
+    }
+
+    relayClientRef.current.start();
+    relayClientRef.current.createInvite();
+    setNearbyState((current) => ({
+      ...current,
+      currentInvite: {
+        inviteId: "",
+        expiresAt: "",
+        link: ""
+      }
+    }));
+  }
+
+  function closeInvite() {
+    activeInviteRef.current = "";
+    setNearbyState((current) => ({
+      ...current,
+      currentInvite: null
+    }));
+  }
+
+  async function triggerNearbySync(reason, { force = false, peerId = "" } = {}) {
+    if (!NEARBY_SIGNAL_URL || !relayClientRef.current || !deviceIdentityRef.current) {
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "relay-unavailable"
+      }));
+      return;
+    }
+
+    relayClientRef.current.start();
+
+    if (!force && Date.now() - lastAutoSyncAtRef.current < AUTO_SYNC_INTERVAL_MS) {
+      return;
+    }
+
+    lastAutoSyncAtRef.current = Date.now();
+
+    const targetPeerIds = peerId
+      ? [peerId]
+      : [...onlinePeerIdsRef.current].filter((entry) =>
+          pairedDevicesRef.current.some((record) => record.peerDeviceId === entry)
+        );
+
+    if (!targetPeerIds.length) {
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "no-peer"
+      }));
+      return;
+    }
+
+    let started = false;
+
+    for (const nextPeerId of targetPeerIds) {
+      if (hasActiveSession(nextPeerId)) {
+        continue;
+      }
+
+      if (deviceIdentityRef.current.deviceId < nextPeerId) {
+        started = true;
+        void startSyncSession(nextPeerId, { initiator: true });
+        continue;
+      }
+
+      if (reason === "manual") {
+        relayClientRef.current.sendSignal(nextPeerId, crypto.randomUUID(), {
+          type: "sync-request",
+          mode: "sync"
+        });
+      }
+    }
+
+    if (started) {
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "syncing"
+      }));
+    }
+  }
+
+  async function handleIncomingSignal(message) {
+    const existingSession = sessionsRef.current.get(message.sessionId);
+    if (existingSession) {
+      await existingSession.handleSignal(message.payload);
+      return;
+    }
+
+    if (message.payload?.type === "sync-request") {
+      if (deviceIdentityRef.current?.deviceId < message.fromDeviceId && !hasActiveSession(message.fromDeviceId)) {
+        void startSyncSession(message.fromDeviceId, { initiator: true });
+      }
+      return;
+    }
+
+    if (!["offer", "answer", "candidate"].includes(message.payload?.type)) {
+      return;
+    }
+
+    const mode = message.payload.mode || "sync";
+    if (mode === "sync") {
+      const pairRecord = await getPairedDevice(message.fromDeviceId);
+      if (!pairRecord) {
+        return;
+      }
+
+      const session = createSession(message.sessionId, message.fromDeviceId, {
+        initiator: false,
+        mode: "sync"
+      });
+      void runSyncSession(session, pairRecord);
+      await session.handleSignal(message.payload);
+      return;
+    }
+
+    const session = createSession(message.sessionId, message.fromDeviceId, {
+      initiator: false,
+      mode: "pair"
+    });
+    void runPairingSession(session, {
+      deviceId: message.fromDeviceId,
+      label:
+        pairedDevicesRef.current.find((entry) => entry.peerDeviceId === message.fromDeviceId)?.peerLabel ||
+        "Nearby device"
+    });
+    await session.handleSignal(message.payload);
+  }
+
+  function createSession(sessionId, remoteDeviceId, { initiator, mode }) {
+    const session = new NearbyWebRtcSession({
+      sessionId,
+      remoteDeviceId,
+      relayClient: relayClientRef.current,
+      initiator,
+      mode
+    });
+
+    sessionsRef.current.set(sessionId, session);
+    setNearbyState((current) => ({
+      ...current,
+      activeSessionCount: current.activeSessionCount + 1,
+      summaryStatus: "syncing"
+    }));
+
+    session.addEventListener("close", () => {
+      sessionsRef.current.delete(sessionId);
+      setNearbyState((current) => ({
+        ...current,
+        activeSessionCount: Math.max(0, current.activeSessionCount - 1),
+        summaryStatus:
+          sessionsRef.current.size > 0
+            ? "syncing"
+            : onlinePeerIdsRef.current.size
+              ? ""
+              : current.summaryStatus === "relay-unavailable"
+                ? current.summaryStatus
+                : "no-peer"
+      }));
+    });
+
+    void session.start();
+    return session;
+  }
+
+  async function startPairSession(remoteDevice, { initiator }) {
+    if (hasActiveSession(remoteDevice.deviceId)) {
+      return;
+    }
+
+    const session = createSession(crypto.randomUUID(), remoteDevice.deviceId, {
+      initiator,
+      mode: "pair"
+    });
+    await runPairingSession(session, remoteDevice);
+  }
+
+  async function runPairingSession(session, remoteDevice) {
+    try {
+      const pairRecord = await runPairSession(session, {
+        localDevice: deviceIdentityRef.current,
+        onPaired: async ({ pairSecret, remoteDevice: incomingRemote }) => {
+          const mergedRemote = {
+            ...remoteDevice,
+            ...incomingRemote
+          };
+          const existing = await getPairedDevice(mergedRemote.deviceId);
+          const nextPair = await pairDevices(
+            deviceIdentityRef.current,
+            mergedRemote,
+            pairSecret || existing?.pairSecret || ""
+          );
+          return nextPair;
+        }
+      });
+      await refreshPairedDevices();
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "paired"
+      }));
+      showToast(`Paired with ${remoteDevice.label || "nearby device"}.`);
+      void triggerNearbySync("pairing", {
+        force: true,
+        peerId: pairRecord.peerDeviceId
+      });
+    } catch (error) {
+      console.error("Nearby pairing failed", error);
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "failed"
+      }));
+    }
+  }
+
+  async function startSyncSession(peerDeviceId, { initiator }) {
+    const pairRecord = pairedDevicesRef.current.find((record) => record.peerDeviceId === peerDeviceId);
+    if (!pairRecord) {
+      return;
+    }
+
+    const session = createSession(crypto.randomUUID(), peerDeviceId, {
+      initiator,
+      mode: "sync"
+    });
+    await runSyncSession(session, pairRecord);
+  }
+
+  async function runSyncSession(session, pairRecord) {
+    try {
+      const result = await runLibrarySyncSession(session, {
+        pairRecord
+      });
+      await touchPairedDevice(pairRecord.peerDeviceId, {
+        lastSeenAt: Date.now(),
+        lastSyncedAt: Date.now(),
+        lastSyncStatus: "synced"
+      });
+      await refreshPairedDevices();
+      if (result.pulledCount) {
+        await refreshLibrary();
+        setRouteVersion((value) => value + 1);
+      }
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: onlinePeerIdsRef.current.size ? "" : "no-peer"
+      }));
+    } catch (error) {
+      console.error("Nearby sync failed", error);
+      await touchPairedDevice(pairRecord.peerDeviceId, {
+        lastSeenAt: Date.now(),
+        lastSyncStatus: "failed"
+      });
+      await refreshPairedDevices();
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "failed"
+      }));
+    }
+  }
+
+  function hasActiveSession(peerDeviceId) {
+    for (const session of sessionsRef.current.values()) {
+      if (session.remoteDeviceId === peerDeviceId) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function handleCopyInviteLink() {
+    if (!nearbyState.currentInvite?.link) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(nearbyState.currentInvite.link);
+      showToast("Copied nearby pairing link.");
+    } catch {
+      showToast("Clipboard copy failed.");
+    }
+  }
+
+  async function handleRenameThisDevice() {
+    const nextLabel = window.prompt("Rename this device", deviceIdentityRef.current?.label || "");
+    if (!nextLabel?.trim()) {
+      return;
+    }
+
+    try {
+      const nextIdentity = await updateDeviceIdentityLabel(nextLabel.trim());
+      setDeviceIdentity(nextIdentity);
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  async function handleRenamePeer(peerDeviceId) {
+    const existing = pairedDevicesRef.current.find((record) => record.peerDeviceId === peerDeviceId);
+    if (!existing) {
+      return;
+    }
+
+    const nextLabel = window.prompt("Rename paired device", existing.peerLabel);
+    if (!nextLabel?.trim()) {
+      return;
+    }
+
+    try {
+      await renamePairedDevice(peerDeviceId, nextLabel.trim());
+      await refreshPairedDevices();
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  async function handleForgetPeer(peerDeviceId) {
+    const existing = pairedDevicesRef.current.find((record) => record.peerDeviceId === peerDeviceId);
+    if (!existing) {
+      return;
+    }
+
+    if (!window.confirm(`Forget ${existing.peerLabel}?`)) {
+      return;
+    }
+
+    await forgetPairedDevice(peerDeviceId);
+    onlinePeerIdsRef.current.delete(peerDeviceId);
+    await refreshPairedDevices();
+    setNearbyState((current) => ({
+      ...current,
+      onlinePeerIds: [...onlinePeerIdsRef.current].sort()
+    }));
   }
 
   const showReader = reader.status === "loading" || Boolean(reader.paper);
@@ -375,6 +948,17 @@ export default function App() {
           importing={importing}
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
+          deviceIdentity={deviceIdentity}
+          pairedDevices={pairedDevices}
+          nearbyState={nearbyState}
+          pairRouteInviteId={route.pairInviteId}
+          onCreateInvite={createInvite}
+          onCloseInvite={closeInvite}
+          onCopyInviteLink={handleCopyInviteLink}
+          onRenameThisDevice={handleRenameThisDevice}
+          onRenamePeer={handleRenamePeer}
+          onForgetPeer={handleForgetPeer}
+          onSyncNow={() => triggerNearbySync("manual", { force: true })}
           onClearInput={() => setLibraryInput("")}
           onSubmitUrl={openReceiveInput}
           onOpenPaper={(paperId) => navigate(`/?paper=${encodeURIComponent(paperId)}`)}
@@ -382,6 +966,7 @@ export default function App() {
           onDeletePaper={handleDeletePaper}
           onExportLibrary={handleExportLibrary}
           onImportFile={handleImportLibrary}
+          formatPairSyncStatus={formatPairSyncStatus}
         />
       )}
 
@@ -394,11 +979,13 @@ function parseRoute() {
   const url = new URL(window.location.href);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const paperId = url.searchParams.get("paper")?.trim() || "";
+  const pairInviteId = url.searchParams.get("pair")?.trim() || "";
 
   if (pathname === "/receive") {
     return {
       kind: "receive",
       paperId: "",
+      pairInviteId,
       payload: {
         url: url.searchParams.get("url") || "",
         text: url.searchParams.get("text") || "",
@@ -411,6 +998,7 @@ function parseRoute() {
     return {
       kind: "saved-paper",
       paperId,
+      pairInviteId,
       payload: null
     };
   }
@@ -418,8 +1006,27 @@ function parseRoute() {
   return {
     kind: "library",
     paperId: "",
+    pairInviteId,
     payload: null
   };
+}
+
+function buildPairInviteLink(inviteId) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set("pair", inviteId);
+  return url.toString();
+}
+
+function clearPairQueryParam() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("pair")) {
+    return;
+  }
+
+  url.searchParams.delete("pair");
+  const nextSearch = url.searchParams.toString();
+  const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
 
 function stringifyError(error) {

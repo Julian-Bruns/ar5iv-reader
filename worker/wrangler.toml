@@ -1,0 +1,12 @@
+name = "ar5iv-reader-nearby-signal"
+main = "src/index.ts"
+compatibility_date = "2026-03-08"
+
+[durable_objects]
+bindings = [
+  { name = "PRESENCE_HUB", class_name = "PresenceHub" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PresenceHub"]

@@ -1,5 +1,9 @@
-import { fetchPaperById } from "./fetchPaper";
-import { getPaper, listPaperIds, savePaper } from "./db";
+import {
+  applyLibrarySnapshot,
+  exportLibrarySnapshot,
+  getPaper
+} from "./db";
+import { mergeLibrarySnapshots } from "./librarySnapshot";
 
 export async function exportPaperHtml(paperId) {
   const record = await getPaper(paperId);
@@ -12,45 +16,19 @@ export async function exportPaperHtml(paperId) {
   });
 }
 
-export async function exportLibraryIds() {
-  const ids = await listPaperIds();
-  return new Blob([JSON.stringify(ids, null, 2)], {
+export async function exportLibraryBackup() {
+  const snapshot = await exportLibrarySnapshot();
+  return new Blob([JSON.stringify(snapshot, null, 2)], {
     type: "application/json;charset=utf-8"
   });
 }
 
-export async function importLibraryIds(file) {
+export async function importLibraryBackup(file) {
   const contents = await file.text();
-  const parsed = JSON.parse(contents);
-
-  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
-    throw new Error("Import file must be a JSON array of arXiv ID strings.");
-  }
-
-  const existing = new Set(await listPaperIds());
-  const importedIds = [];
-  const failedIds = [];
-
-  for (const rawId of parsed) {
-    const id = rawId.trim();
-    if (!id || existing.has(id)) {
-      continue;
-    }
-
-    try {
-      const sessionPaper = await fetchPaperById(id);
-      if (sessionPaper.view !== "html") {
-        throw new Error("Rendered HTML unavailable");
-      }
-      await savePaper(sessionPaper);
-      existing.add(id);
-      importedIds.push(id);
-    } catch {
-      failedIds.push(id);
-    }
-  }
-
-  return { importedIds, failedIds };
+  const importedSnapshot = JSON.parse(contents);
+  const localSnapshot = await exportLibrarySnapshot();
+  const mergedSnapshot = mergeLibrarySnapshots(localSnapshot, importedSnapshot);
+  await applyLibrarySnapshot(mergedSnapshot);
 }
 
 export function downloadBlob(blob, filename) {

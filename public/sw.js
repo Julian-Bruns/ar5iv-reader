@@ -1,4 +1,4 @@
-const CACHE_NAME = "ar5iv-reader-shell-v2";
+const CACHE_NAME = "ar5iv-reader-shell-v4";
 const CORE_URLS = [
   "/",
   "/index.html",

@@ -76,6 +76,7 @@ export function sanitizePaperHtml(rawHtml, { baseUrl = "" } = {}) {
 
   const fragment = article.cloneNode(true);
   absolutizeNodeUrls(fragment, baseUrl);
+  tunePaperMarkup(fragment);
 
   const sanitizedHtml = purifier.sanitize(
     fragment.outerHTML,
@@ -128,6 +129,20 @@ function absolutizeNodeUrls(root, baseUrl) {
       } else {
         element.removeAttribute("srcset");
       }
+    }
+  }
+}
+
+function tunePaperMarkup(root) {
+  for (const image of root.querySelectorAll("img")) {
+    if (!image.hasAttribute("loading")) {
+      image.setAttribute("loading", "lazy");
+    }
+    if (!image.hasAttribute("decoding")) {
+      image.setAttribute("decoding", "async");
+    }
+    if (!image.hasAttribute("fetchpriority")) {
+      image.setAttribute("fetchpriority", "low");
     }
   }
 }

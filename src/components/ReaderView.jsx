@@ -24,6 +24,19 @@ export default function ReaderView({
   }, [showToast]);
 
   useEffect(() => {
+    const shell = articleRef.current;
+    if (!shell || !paper?.sanitizedHtml || paper?.view !== "html") {
+      return undefined;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      prepareArticleForMobile(shell);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [paper?.id, paper?.sanitizedHtml, paper?.view]);
+
+  useEffect(() => {
     if (!articleRef.current || !paper?.sanitizedHtml || paper?.view !== "html") {
       return undefined;
     }
@@ -365,4 +378,75 @@ function findPaperTarget(article, targetId) {
   }
 
   return null;
+}
+
+function prepareArticleForMobile(shell) {
+  const rootArticle = shell.querySelector(":scope > article");
+  if (!rootArticle || rootArticle.dataset.chunked === "true") {
+    return;
+  }
+
+  rootArticle.classList.add("paper-root");
+  rootArticle.dataset.chunked = "true";
+
+  const children = [...rootArticle.childNodes].filter((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      return true;
+    }
+
+    return node.nodeType === Node.TEXT_NODE && node.textContent?.trim();
+  });
+
+  if (children.length < 8) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  let chunk = createChunk(rootArticle.ownerDocument);
+  let chunkSize = 0;
+
+  for (const child of children) {
+    if (shouldStartNewChunk(child, chunkSize, chunk.childNodes.length)) {
+      fragment.appendChild(chunk);
+      chunk = createChunk(rootArticle.ownerDocument);
+      chunkSize = 0;
+    }
+
+    chunk.appendChild(child);
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      chunkSize += 1;
+    }
+  }
+
+  if (chunk.childNodes.length) {
+    fragment.appendChild(chunk);
+  }
+
+  rootArticle.replaceChildren(fragment);
+}
+
+function createChunk(documentNode) {
+  const element = documentNode.createElement("section");
+  element.className = "paper-chunk";
+  return element;
+}
+
+function shouldStartNewChunk(node, chunkSize, chunkChildren) {
+  if (chunkChildren === 0) {
+    return false;
+  }
+
+  if (!(node instanceof Element)) {
+    return chunkSize >= 5;
+  }
+
+  if (
+    node.matches(
+      "section, h1, h2, h3, h4, .ltx_section, .ltx_bibliography, .ltx_appendix, .ltx_titlepage"
+    )
+  ) {
+    return true;
+  }
+
+  return chunkSize >= 6 && node.matches("p, div, figure, table, ul, ol");
 }
