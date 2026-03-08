@@ -8,7 +8,7 @@ export function installMathCopy(root, showToast) {
   for (const node of root.querySelectorAll(selector)) {
     node.setAttribute("tabindex", "0");
     node.setAttribute("role", "button");
-    node.setAttribute("title", "Copy LaTeX");
+    node.setAttribute("aria-label", "Copy LaTeX");
     node.dataset.copyLatex = "true";
   }
 
