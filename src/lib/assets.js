@@ -1,5 +1,8 @@
 import { fetchBlobWithFallback } from "./fetchPaper";
 
+const ASSET_FETCH_TIMEOUT_MS = 8_000;
+const ASSET_FETCH_CONCURRENCY = 4;
+
 export function collectAssetUrls(rawHtml, baseUrl) {
   const documentNode = new DOMParser().parseFromString(rawHtml, "text/html");
   const article =
@@ -28,18 +31,43 @@ export function collectAssetUrls(rawHtml, baseUrl) {
 }
 
 export async function fetchAssetRecords(paperId, assetUrls) {
+  const queue = [...assetUrls];
   const records = [];
 
-  for (const assetUrl of assetUrls) {
-    const { blob, contentType } = await fetchBlobWithFallback(assetUrl);
-    records.push({
-      key: `${paperId}::${assetUrl}`,
-      paperId,
-      assetUrl,
-      blob,
-      contentType
-    });
+  async function worker() {
+    while (queue.length) {
+      const assetUrl = queue.shift();
+      if (!assetUrl) {
+        return;
+      }
+
+      try {
+        const { blob, contentType } = await fetchWithTimeout(
+          fetchBlobWithFallback(assetUrl),
+          ASSET_FETCH_TIMEOUT_MS,
+          assetUrl
+        );
+        records.push({
+          key: `${paperId}::${assetUrl}`,
+          paperId,
+          assetUrl,
+          blob,
+          contentType
+        });
+      } catch (error) {
+        console.warn("Skipping asset during offline save", assetUrl, error);
+      }
+    }
   }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(ASSET_FETCH_CONCURRENCY, Math.max(queue.length, 1))
+      },
+      () => worker()
+    )
+  );
 
   return records;
 }
@@ -133,4 +161,22 @@ function toAbsoluteHttpUrl(value, baseUrl) {
   } catch {
     return null;
   }
+}
+
+function fetchWithTimeout(promise, timeoutMs, assetUrl) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(`Timed out while fetching ${assetUrl}`));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }

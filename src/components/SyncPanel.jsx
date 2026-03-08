@@ -88,7 +88,7 @@ export default function SyncPanel({
               Relay: {renderRelayState(nearbyState.relayStatus)}
             </p>
             <p className="paper-meta">
-              Online paired devices: {nearbyState.onlinePeerIds.length}
+              Other paired devices online: {nearbyState.onlinePeerIds.length}
             </p>
           </div>
         </div>
@@ -232,7 +232,9 @@ function renderNearbySummary(nearbyState, pairRouteInviteId) {
   }
 
   if (nearbyState.onlinePeerIds.length) {
-    return "Paired device detected nearby.";
+    return nearbyState.onlinePeerIds.length === 1
+      ? "A paired device is online nearby."
+      : "Paired devices are online nearby.";
   }
 
   return "Ready to pair and sync nearby devices.";
