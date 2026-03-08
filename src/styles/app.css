@@ -85,6 +85,10 @@ input {
   margin: 0 auto;
 }
 
+.reader-shell {
+  width: min(1440px, 100%);
+}
+
 .hero-panel,
 .card,
 .reader-topbar,
@@ -109,7 +113,7 @@ input {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
-  padding: 0.95rem 1.25rem;
+  padding: 0.8rem 1rem;
 }
 
 .hero-panel h1,
@@ -135,17 +139,17 @@ input {
 .hero-copy,
 .reader-meta,
 .section-heading p,
-.paper-meta,
-.source-link {
+.paper-meta {
   margin: 0;
   color: rgba(44, 33, 29, 0.74);
 }
 
 .reader-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
   font-size: 0.92rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .hero-actions,
@@ -174,6 +178,10 @@ input {
   margin-top: 1.25rem;
   padding: 1.5rem;
   animation: rise 420ms ease;
+}
+
+.reader-frame {
+  padding: 0.7rem;
 }
 
 .section-heading {
@@ -291,6 +299,44 @@ input {
   margin-top: 1rem;
 }
 
+.setup-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.setup-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.setup-guide p {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.78);
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.setup-guide {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.72);
+  border: 1px solid rgba(122, 31, 21, 0.1);
+}
+
+.setup-guide code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
 .paper-grid {
   display: grid;
   gap: 1rem;
@@ -371,7 +417,7 @@ input {
   background: rgba(255, 252, 246, 0.95);
   border-radius: 20px;
   border: 1px solid rgba(122, 31, 21, 0.08);
-  padding: clamp(1rem, 3vw, 2.2rem);
+  padding: clamp(0.55rem, 2vw, 1rem);
 }
 
 .paper-body {
@@ -387,7 +433,7 @@ input {
 }
 
 .paper-body article {
-  max-width: 78ch;
+  max-width: 96ch;
   margin: 0 auto;
 }
 
@@ -526,6 +572,28 @@ input {
   --fo_width: 100%;
 }
 
+.pdf-viewer {
+  width: 100%;
+  min-height: calc(100vh - 11rem);
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 252, 246, 0.95);
+}
+
+.reader-id-link {
+  color: inherit;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  text-decoration: none;
+}
+
+.reader-id-link:hover {
+  text-decoration: underline;
+}
+
+.reader-meta-detail {
+  color: rgba(44, 33, 29, 0.64);
+}
+
 .paper-body svg foreignObject > .ltx_foreignobject_container {
   display: flex;
   align-items: end;
@@ -570,12 +638,6 @@ input {
   user-select: none;
 }
 
-.source-link {
-  margin-bottom: 1rem;
-  font-size: 0.92rem;
-  word-break: break-word;
-}
-
 .toast {
   position: fixed;
   left: 50%;
@@ -597,6 +659,68 @@ input {
 .toast--visible {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.banner--notice {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.banner--notice p {
+  margin: 0;
+}
+
+.banner-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.banner-menu-shell {
+  position: relative;
+}
+
+.banner-icon {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(122, 31, 21, 0.08);
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+.banner-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 4;
+  min-width: 13rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(122, 31, 21, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 251, 245, 0.98);
+  box-shadow: 0 16px 28px rgba(74, 44, 29, 0.14);
+}
+
+.banner-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  background: transparent;
+  color: var(--accent-dark);
+  text-align: left;
+  cursor: pointer;
+}
+
+.banner-menu button:hover {
+  background: rgba(122, 31, 21, 0.08);
 }
 
 @keyframes rise {
@@ -632,6 +756,10 @@ input {
   .reader-topbar {
     grid-template-columns: 1fr;
     justify-items: flex-start;
+  }
+
+  .banner--notice {
+    flex-direction: column;
   }
 
   .hero-actions,

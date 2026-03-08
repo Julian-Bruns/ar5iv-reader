@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import InstallButton from "./InstallButton";
+import BookmarkSetupPanel from "./BookmarkSetupPanel";
 
 export default function LibraryView({
   papers,
@@ -16,10 +17,17 @@ export default function LibraryView({
   onImportFile
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
+  const [showBookmarkSetup, setShowBookmarkSetup] = useState(false);
 
   useEffect(() => {
     setInputValue(defaultInput || "");
   }, [defaultInput]);
+
+  useEffect(() => {
+    const handleInstalled = () => setShowBookmarkSetup(true);
+    window.addEventListener("appinstalled", handleInstalled);
+    return () => window.removeEventListener("appinstalled", handleInstalled);
+  }, []);
 
   return (
     <div className="library-shell">
@@ -28,8 +36,8 @@ export default function LibraryView({
           <p className="eyebrow">Offline-first ar5iv reading</p>
           <h1>ar5iv Reader</h1>
           <p className="hero-copy">
-            Paste an arXiv URL, send one from a bookmarklet, or save papers for
-            offline reading with figure blobs stored in IndexedDB.
+            Paste an arXiv URL, use the built-in ArXiv opener flow, or save
+            papers for offline reading with figure blobs stored in IndexedDB.
           </p>
         </div>
         <div className="hero-actions">
@@ -50,9 +58,21 @@ export default function LibraryView({
               }}
             />
           </label>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setShowBookmarkSetup((value) => !value)}
+          >
+            {showBookmarkSetup ? "Hide Bookmark Setup" : "Bookmark Setup"}
+          </button>
           <InstallButton />
         </div>
       </header>
+
+      <BookmarkSetupPanel
+        open={showBookmarkSetup}
+        onClose={() => setShowBookmarkSetup(false)}
+      />
 
       <section className="card form-card">
         <div className="section-heading">

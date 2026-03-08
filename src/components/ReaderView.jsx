@@ -5,7 +5,9 @@ export default function ReaderView({
   paper,
   busy,
   error,
+  fallbackNoticeEnabled,
   onBack,
+  onDisableFallbackNotice,
   onSave,
   onExport,
   onDelete,
@@ -14,13 +16,15 @@ export default function ReaderView({
   const articleRef = useRef(null);
   const showToastRef = useRef(showToast);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [dismissedNotice, setDismissedNotice] = useState(false);
+  const [showNoticeMenu, setShowNoticeMenu] = useState(false);
 
   useEffect(() => {
     showToastRef.current = showToast;
   }, [showToast]);
 
   useEffect(() => {
-    if (!articleRef.current || !paper?.sanitizedHtml) {
+    if (!articleRef.current || !paper?.sanitizedHtml || paper?.view !== "html") {
       return undefined;
     }
 
@@ -34,8 +38,13 @@ export default function ReaderView({
   }, [paper?.id]);
 
   useEffect(() => {
+    setDismissedNotice(false);
+    setShowNoticeMenu(false);
+  }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
+
+  useEffect(() => {
     const article = articleRef.current;
-    if (!article || !paper?.ar5ivUrl) {
+    if (!article || !paper?.ar5ivUrl || paper?.view !== "html") {
       return undefined;
     }
 
@@ -72,7 +81,12 @@ export default function ReaderView({
   }, [paper?.ar5ivUrl, paper?.id, paper?.sanitizedHtml]);
 
   useEffect(() => {
-    if (!paper?.sanitizedHtml || !window.location.hash || !articleRef.current) {
+    if (
+      paper?.view !== "html" ||
+      !paper?.sanitizedHtml ||
+      !window.location.hash ||
+      !articleRef.current
+    ) {
       return undefined;
     }
 
@@ -162,7 +176,7 @@ export default function ReaderView({
           <button className="ghost-button" type="button" onClick={onBack}>
             Back to Library
           </button>
-          {paper?.mode === "session" ? (
+          {paper?.mode === "session" && paper?.view === "html" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
             </button>
@@ -173,10 +187,21 @@ export default function ReaderView({
       <header className="reader-topbar">
         <div className="reader-context">
           <p className="reader-kicker">
-            {paper?.mode === "saved" ? "Offline library copy" : "Skim mode"}
+            {paper?.mode === "saved"
+              ? "Offline library copy"
+              : paper?.view === "pdf"
+                ? "PDF fallback"
+                : "Skim mode"}
           </p>
           <p className="reader-meta">
-            {paper?.relay ? `Fetched via ${paper.relay}` : paper?.id || "Loading paper…"}
+            {paper?.sourceUrl ? (
+              <a className="reader-id-link" href={paper.sourceUrl} target="_blank" rel="noreferrer">
+                {paper?.id || "Loading paper…"}
+              </a>
+            ) : paper?.id || "Loading paper…"}
+            {paper?.view === "html" && paper?.relay ? (
+              <span className="reader-meta-detail">Fetched via {paper.relay}</span>
+            ) : null}
           </p>
         </div>
 
@@ -184,10 +209,15 @@ export default function ReaderView({
           <button className="ghost-button" type="button" onClick={onBack}>
             Back to Library
           </button>
-          {paper?.mode === "session" ? (
+          {paper?.mode === "session" && paper?.view === "html" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
             </button>
+          ) : null}
+          {paper?.view === "pdf" && paper?.pdfUrl ? (
+            <a className="ghost-button" href={paper.pdfUrl} target="_blank" rel="noreferrer">
+              Open PDF
+            </a>
           ) : null}
           {paper?.mode === "saved" ? (
             <>
@@ -207,22 +237,64 @@ export default function ReaderView({
       </header>
 
       {error ? <p className="banner banner--error">{error}</p> : null}
+      {paper?.notice && fallbackNoticeEnabled && !dismissedNotice ? (
+        <div className="banner banner--notice">
+          <p>{paper.notice}</p>
+          <div className="banner-actions">
+            <button
+              className="banner-icon"
+              type="button"
+              aria-label="Dismiss PDF fallback notice"
+              onClick={() => {
+                setDismissedNotice(true);
+                setShowNoticeMenu(false);
+              }}
+            >
+              ×
+            </button>
+            <div className="banner-menu-shell">
+              <button
+                className="banner-icon"
+                type="button"
+                aria-label="PDF fallback notice options"
+                onClick={() => setShowNoticeMenu((value) => !value)}
+              >
+                ⋯
+              </button>
+              {showNoticeMenu ? (
+                <div className="banner-menu">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDismissedNotice(true);
+                      setShowNoticeMenu(false);
+                      onDisableFallbackNotice();
+                    }}
+                  >
+                    Don&apos;t show this again
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="reader-frame">
         <div className="reader-surface">
-          {paper?.sourceUrl ? (
-            <p className="source-link">
-              Source:{" "}
-              <a href={paper.sourceUrl} target="_blank" rel="noreferrer">
-                {paper.sourceUrl}
-              </a>
-            </p>
-          ) : null}
-          <article
-            ref={articleRef}
-            className="paper-body"
-            dangerouslySetInnerHTML={{ __html: paper?.sanitizedHtml || "" }}
-          />
+          {paper?.view === "pdf" && paper?.pdfUrl ? (
+            <iframe
+              className="pdf-viewer"
+              src={paper.pdfUrl}
+              title={paper.title || paper.id || "PDF fallback"}
+            />
+          ) : (
+            <article
+              ref={articleRef}
+              className="paper-body"
+              dangerouslySetInnerHTML={{ __html: paper?.sanitizedHtml || "" }}
+            />
+          )}
         </div>
       </section>
     </div>

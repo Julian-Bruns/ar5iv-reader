@@ -1,4 +1,9 @@
-import { buildAr5ivUrl, buildArxivAbsUrl } from "./arxiv";
+import {
+  buildAr5ivUrl,
+  buildArxivAbsUrl,
+  buildArxivHtmlUrl,
+  buildArxivPdfUrl
+} from "./arxiv";
 
 export const RELAYS = [
   "https://corsproxy.io/?",
@@ -18,20 +23,85 @@ export async function fetchPaperById(
   id,
   { sourceUrl = "", titleHint = "" } = {}
 ) {
-  const ar5ivUrl = buildAr5ivUrl(id);
-  const { body, relay } = await fetchTextThroughRelays(ar5ivUrl);
+  try {
+    const { body, relay, targetUrl } = await fetchPaperHtmlById(id);
 
+    return {
+      id,
+      sourceUrl: sourceUrl || buildArxivAbsUrl(id),
+      ar5ivUrl: targetUrl,
+      html: body,
+      relay,
+      titleHint,
+      view: "html"
+    };
+  } catch (error) {
+    return buildPdfFallbackPaper(id, {
+      sourceUrl,
+      titleHint,
+      reason: stringifyError(error)
+    });
+  }
+}
+
+export function buildPdfFallbackPaper(
+  id,
+  { sourceUrl = "", titleHint = "", reason = "" } = {}
+) {
   return {
     id,
     sourceUrl: sourceUrl || buildArxivAbsUrl(id),
-    ar5ivUrl,
-    html: body,
-    relay,
-    titleHint
+    pdfUrl: buildArxivPdfUrl(id),
+    titleHint,
+    view: "pdf",
+    notice: buildPdfFallbackNotice(reason)
   };
 }
 
+async function fetchPaperHtmlById(id) {
+  const targetUrls = [buildArxivHtmlUrl(id), buildAr5ivUrl(id)];
+  try {
+    return await Promise.any(
+      targetUrls.map(async (targetUrl) => {
+        const result = await fetchTextThroughRelays(targetUrl);
+        assertLooksLikePaperHtml(result.body, targetUrl);
+        return {
+          ...result,
+          targetUrl
+        };
+      })
+    );
+  } catch (error) {
+    const summary =
+      error instanceof AggregateError
+        ? error.errors.map((entry) => stringifyError(entry)).join(" | ")
+        : stringifyError(error);
+    throw new Error(`Unable to fetch rendered paper HTML for ${id}. ${summary}`);
+  }
+}
+
 export async function fetchTextThroughRelays(targetUrl) {
+  try {
+    const response = await fetch(targetUrl, {
+      headers: {
+        accept: "text/html,application/xhtml+xml,*/*"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+    }
+
+    return {
+      body: await response.text(),
+      contentType: response.headers.get("content-type") || "",
+      response,
+      relay: "direct"
+    };
+  } catch {
+    // Fall through to relay fetches when direct cross-origin fetches are blocked.
+  }
+
   return fetchThroughRelays(targetUrl, async (requestUrl) => {
     const response = await fetch(requestUrl, {
       headers: {
@@ -49,6 +119,24 @@ export async function fetchTextThroughRelays(targetUrl) {
       response
     };
   });
+}
+
+function assertLooksLikePaperHtml(rawHtml, targetUrl) {
+  const documentNode = new DOMParser().parseFromString(rawHtml, "text/html");
+  const paperArticle =
+    documentNode.querySelector("article.ltx_document") ||
+    documentNode.querySelector("main article");
+
+  if (paperArticle) {
+    return;
+  }
+
+  const pageTitle = documentNode.title?.trim() || targetUrl;
+  throw new Error(`Fetched HTML did not contain a rendered paper article (${pageTitle}).`);
+}
+
+function buildPdfFallbackNotice(reason) {
+  return "Showing the PDF because this paper does not currently have a usable HTML view. Math copy is disabled in PDF fallback.";
 }
 
 export async function fetchBlobWithFallback(targetUrl) {

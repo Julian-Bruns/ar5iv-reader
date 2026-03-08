@@ -39,6 +39,14 @@ export function buildAr5ivUrl(id) {
   return `https://ar5iv.labs.arxiv.org/html/${id}`;
 }
 
+export function buildArxivHtmlUrl(id) {
+  return `https://arxiv.org/html/${id}`;
+}
+
+export function buildArxivPdfUrl(id) {
+  return `https://arxiv.org/pdf/${id}`;
+}
+
 export function buildArxivAbsUrl(id) {
   return `https://arxiv.org/abs/${id}`;
 }

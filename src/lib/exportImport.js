@@ -39,6 +39,9 @@ export async function importLibraryIds(file) {
 
     try {
       const sessionPaper = await fetchPaperById(id);
+      if (sessionPaper.view !== "html") {
+        throw new Error("Rendered HTML unavailable");
+      }
       await savePaper(sessionPaper);
       existing.add(id);
       importedIds.push(id);

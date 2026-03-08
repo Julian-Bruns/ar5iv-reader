@@ -4,10 +4,12 @@ import ReaderView from "./components/ReaderView";
 import Toast from "./components/Toast";
 import {
   deletePaper,
+  getSetting,
   getAssetRecordsForPaper,
   getPaper,
   listPapers,
-  savePaper
+  savePaper,
+  setSetting
 } from "./lib/db";
 import {
   downloadBlob,
@@ -15,7 +17,7 @@ import {
   exportPaperHtml,
   importLibraryIds
 } from "./lib/exportImport";
-import { fetchPaperById } from "./lib/fetchPaper";
+import { buildPdfFallbackPaper, fetchPaperById } from "./lib/fetchPaper";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
 import { extractPaperMetadata, sanitizePaperHtml } from "./lib/sanitizePaper";
@@ -28,11 +30,13 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [libraryInput, setLibraryInput] = useState("");
+  const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
   const revokeAssetsRef = useRef(() => {});
   const route = parseRoute();
 
   useEffect(() => {
     void refreshLibrary();
+    void loadSettings();
 
     const syncRoute = () => setRouteVersion((value) => value + 1);
     window.addEventListener("popstate", syncRoute);
@@ -89,7 +93,8 @@ export default function App() {
               ...record,
               title: record.title || metadata.title || record.id,
               sanitizedHtml,
-              mode: "saved"
+              mode: "saved",
+              view: "html"
             }
           });
           return;
@@ -106,12 +111,50 @@ export default function App() {
           sourceUrl: route.payload.url || route.payload.text || "",
           titleHint: route.payload.title || ""
         });
-        const metadata = extractPaperMetadata(sessionPaper.html, sessionPaper.id);
-        const sanitizedHtml = sanitizePaperHtml(sessionPaper.html, {
-          baseUrl: sessionPaper.ar5ivUrl
-        });
 
         if (cancelled) {
+          return;
+        }
+
+        if (sessionPaper.view === "pdf") {
+          showToast("Rendered HTML unavailable. Opened PDF fallback.");
+          setReader({
+            status: "ready",
+            error: "",
+            paper: {
+              ...sessionPaper,
+              title: sessionPaper.titleHint || sessionPaper.id,
+              mode: "session"
+            }
+          });
+          return;
+        }
+
+        let metadata;
+        let sanitizedHtml;
+
+        try {
+          metadata = extractPaperMetadata(sessionPaper.html, sessionPaper.id);
+          sanitizedHtml = sanitizePaperHtml(sessionPaper.html, {
+            baseUrl: sessionPaper.ar5ivUrl
+          });
+        } catch (error) {
+          const pdfFallback = buildPdfFallbackPaper(id, {
+            sourceUrl: route.payload.url || route.payload.text || "",
+            titleHint: route.payload.title || "",
+            reason: stringifyError(error)
+          });
+
+          showToast("Rendered HTML failed to open. Opened PDF fallback.");
+          setReader({
+            status: "ready",
+            error: "",
+            paper: {
+              ...pdfFallback,
+              title: pdfFallback.titleHint || pdfFallback.id,
+              mode: "session"
+            }
+          });
           return;
         }
 
@@ -178,6 +221,15 @@ export default function App() {
     setLibrary({ loading: false, papers });
   }
 
+  async function loadSettings() {
+    try {
+      const stored = await getSetting("pdfFallbackNoticeEnabled");
+      setFallbackNoticeEnabled(stored?.value !== false);
+    } catch (error) {
+      console.error("Settings load failed", error);
+    }
+  }
+
   function navigate(nextUrl) {
     window.history.pushState({}, "", nextUrl);
     setRouteVersion((value) => value + 1);
@@ -185,6 +237,16 @@ export default function App() {
 
   function showToast(message) {
     setToast(message);
+  }
+
+  async function disableFallbackNotice() {
+    setFallbackNoticeEnabled(false);
+    try {
+      await setSetting("pdfFallbackNoticeEnabled", false);
+    } catch (error) {
+      console.error("Failed to persist PDF fallback notice preference", error);
+      showToast("Could not save the PDF fallback notice setting.");
+    }
   }
 
   function openReceiveInput(value) {
@@ -201,7 +263,14 @@ export default function App() {
   }
 
   async function handleSave() {
-    if (!reader.paper || reader.paper.mode !== "session") {
+    if (
+      !reader.paper ||
+      reader.paper.mode !== "session" ||
+      reader.paper.view !== "html"
+    ) {
+      if (reader.paper?.view === "pdf") {
+        showToast("PDF fallback sessions cannot be saved offline yet.");
+      }
       return;
     }
 
@@ -291,7 +360,9 @@ export default function App() {
           paper={reader.paper}
           busy={saving}
           error={reader.error}
+          fallbackNoticeEnabled={fallbackNoticeEnabled}
           onBack={() => navigate("/")}
+          onDisableFallbackNotice={disableFallbackNotice}
           onSave={handleSave}
           onExport={() => handleExportPaper(reader.paper.id)}
           onDelete={() => handleDeletePaper(reader.paper.id)}
