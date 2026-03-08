@@ -34,6 +34,58 @@ export default function ReaderView({
   }, [paper?.id]);
 
   useEffect(() => {
+    const article = articleRef.current;
+    if (!article || !paper?.ar5ivUrl) {
+      return undefined;
+    }
+
+    const handleDocumentLinkClick = (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!link || link.target === "_blank" || link.hasAttribute("download")) {
+        return;
+      }
+
+      const targetHash = resolveSamePaperHash(link.getAttribute("href"), paper.ar5ivUrl);
+      if (!targetHash) {
+        return;
+      }
+
+      event.preventDefault();
+      scrollToPaperTarget(article, targetHash, { updateHistory: true });
+    };
+
+    article.addEventListener("click", handleDocumentLinkClick);
+    return () => {
+      article.removeEventListener("click", handleDocumentLinkClick);
+    };
+  }, [paper?.ar5ivUrl, paper?.id, paper?.sanitizedHtml]);
+
+  useEffect(() => {
+    if (!paper?.sanitizedHtml || !window.location.hash || !articleRef.current) {
+      return undefined;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToPaperTarget(articleRef.current, window.location.hash, {
+        updateHistory: false
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [paper?.id, paper?.sanitizedHtml]);
+
+  useEffect(() => {
     if (!paper) {
       return undefined;
     }
@@ -119,18 +171,19 @@ export default function ReaderView({
       </div>
 
       <header className="reader-topbar">
-        <div>
-          <button className="ghost-button" type="button" onClick={onBack}>
-            Back to Library
-          </button>
+        <div className="reader-context">
           <p className="reader-kicker">
             {paper?.mode === "saved" ? "Offline library copy" : "Skim mode"}
           </p>
-          <h1>{paper?.title || "Loading paper…"}</h1>
-          {paper?.relay ? <p className="reader-meta">Fetched via {paper.relay}</p> : null}
+          <p className="reader-meta">
+            {paper?.relay ? `Fetched via ${paper.relay}` : paper?.id || "Loading paper…"}
+          </p>
         </div>
 
         <div className="reader-actions">
+          <button className="ghost-button" type="button" onClick={onBack}>
+            Back to Library
+          </button>
           {paper?.mode === "session" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
@@ -174,4 +227,70 @@ export default function ReaderView({
       </section>
     </div>
   );
+}
+
+function resolveSamePaperHash(href, paperUrl) {
+  if (!href) {
+    return "";
+  }
+
+  if (href.startsWith("#")) {
+    return href;
+  }
+
+  try {
+    const currentPaperUrl = new URL(paperUrl);
+    const targetUrl = new URL(href, paperUrl);
+
+    if (
+      !targetUrl.hash ||
+      targetUrl.origin !== currentPaperUrl.origin ||
+      targetUrl.pathname !== currentPaperUrl.pathname ||
+      targetUrl.search !== currentPaperUrl.search
+    ) {
+      return "";
+    }
+
+    return targetUrl.hash;
+  } catch {
+    return "";
+  }
+}
+
+function scrollToPaperTarget(article, hash, { updateHistory }) {
+  const normalizedHash = hash === "#" ? "" : hash;
+  const fragment = normalizedHash.startsWith("#") ? normalizedHash.slice(1) : normalizedHash;
+  const targetId = decodeURIComponent(fragment);
+
+  if (updateHistory) {
+    const nextUrl = `${window.location.pathname}${window.location.search}${normalizedHash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }
+
+  if (!targetId) {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    return;
+  }
+
+  const target = findPaperTarget(article, targetId);
+  if (!target) {
+    return;
+  }
+
+  target.scrollIntoView({ block: "start", inline: "nearest" });
+}
+
+function findPaperTarget(article, targetId) {
+  const target = article.ownerDocument.getElementById(targetId);
+  if (target && article.contains(target)) {
+    return target;
+  }
+
+  for (const namedTarget of article.querySelectorAll("[name]")) {
+    if (namedTarget.getAttribute("name") === targetId) {
+      return namedTarget;
+    }
+  }
+
+  return null;
 }
