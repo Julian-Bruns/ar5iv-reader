@@ -11,6 +11,8 @@ const UNSAFE_TAGS = [
   "form"
 ];
 const EXTRA_TAGS = [
+  "foreignObject",
+  "foreignobject",
   "math",
   "semantics",
   "annotation",
@@ -75,19 +77,16 @@ export function sanitizePaperHtml(rawHtml, { baseUrl = "" } = {}) {
   const fragment = article.cloneNode(true);
   absolutizeNodeUrls(fragment, baseUrl);
 
-  return purifier.sanitize(fragment.outerHTML, {
-    USE_PROFILES: {
+  const sanitizedHtml = purifier.sanitize(
+    fragment.outerHTML,
+    createSanitizeOptions({
       html: true,
       svg: true,
       mathMl: true
-    },
-    ADD_TAGS: EXTRA_TAGS,
-    ADD_ATTR: EXTRA_ATTRS,
-    FORBID_TAGS: UNSAFE_TAGS,
-    FORBID_ATTR: ["style"],
-    ALLOW_DATA_ATTR: true,
-    KEEP_CONTENT: true
-  });
+    })
+  );
+
+  return restoreForeignObjectContent(fragment, sanitizedHtml);
 }
 
 export function extractPaperMetadata(rawHtml, fallbackTitle = "") {
@@ -188,4 +187,49 @@ function ensurePurifierHooks() {
   });
 
   hooksInstalled = true;
+}
+
+function createSanitizeOptions(profiles) {
+  return {
+    USE_PROFILES: profiles,
+    ADD_TAGS: EXTRA_TAGS,
+    ADD_ATTR: EXTRA_ATTRS,
+    FORBID_TAGS: UNSAFE_TAGS,
+    FORBID_ATTR: ["style"],
+    ALLOW_DATA_ATTR: true,
+    KEEP_CONTENT: true
+  };
+}
+
+function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
+  const sourceForeignObjects = [...sourceRoot.querySelectorAll("foreignObject")];
+  if (!sourceForeignObjects.length) {
+    return sanitizedHtml;
+  }
+
+  const sanitizedDocument = new DOMParser().parseFromString(sanitizedHtml, "text/html");
+  const sanitizedRoot =
+    sanitizedDocument.querySelector("article.ltx_document") ||
+    sanitizedDocument.querySelector("article") ||
+    sanitizedDocument.body.firstElementChild;
+
+  if (!sanitizedRoot) {
+    return sanitizedHtml;
+  }
+
+  const sanitizedForeignObjects = [...sanitizedRoot.querySelectorAll("foreignObject")];
+  const count = Math.min(sourceForeignObjects.length, sanitizedForeignObjects.length);
+
+  for (let index = 0; index < count; index += 1) {
+    const sanitizedForeignObject = sanitizedForeignObjects[index];
+    sanitizedForeignObject.innerHTML = purifier.sanitize(
+      sourceForeignObjects[index].innerHTML,
+      createSanitizeOptions({
+        html: true,
+        mathMl: true
+      })
+    );
+  }
+
+  return sanitizedRoot.outerHTML;
 }
