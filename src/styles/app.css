@@ -166,12 +166,41 @@ input {
   gap: 0.85rem;
 }
 
+.input-shell {
+  position: relative;
+}
+
 .url-input {
   width: 100%;
   border: 1px solid rgba(122, 31, 21, 0.14);
   border-radius: 16px;
-  padding: 0.95rem 1rem;
+  padding: 0.95rem 3rem 0.95rem 1rem;
   background: rgba(255, 252, 246, 0.95);
+}
+
+.input-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(122, 31, 21, 0.08);
+  color: rgba(44, 33, 29, 0.72);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.input-clear:hover {
+  background: rgba(122, 31, 21, 0.14);
+  color: var(--accent-dark);
+  transform: translateY(-50%) scale(1.04);
 }
 
 .primary-button,
@@ -271,6 +300,45 @@ input {
 
 .reader-frame {
   padding: 1rem;
+}
+
+.reader-quickbar {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  z-index: 8;
+  width: min(calc(100vw - 2rem), 30rem);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -0.85rem);
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.reader-quickbar--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.reader-quickbar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  background: rgba(255, 248, 239, 0.84);
+  border: 1px solid rgba(122, 31, 21, 0.12);
+  border-radius: 999px;
+  box-shadow: 0 16px 34px rgba(74, 44, 29, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.reader-quickbar .primary-button,
+.reader-quickbar .ghost-button {
+  min-height: 2.65rem;
+  padding: 0.72rem 1rem;
 }
 
 .reader-surface {
@@ -544,5 +612,9 @@ input {
 
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .reader-quickbar {
+    width: min(calc(100vw - 1.5rem), 28rem);
   }
 }

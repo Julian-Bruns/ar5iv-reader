@@ -7,6 +7,7 @@ export default function LibraryView({
   importing,
   receiveMessage,
   defaultInput,
+  onClearInput,
   onSubmitUrl,
   onOpenPaper,
   onExportPaper,
@@ -70,14 +71,29 @@ export default function LibraryView({
             onSubmitUrl(inputValue);
           }}
         >
-          <input
-            className="url-input"
-            type="text"
-            inputMode="url"
-            placeholder="https://arxiv.org/abs/1706.03762"
-            value={inputValue}
-            onInput={(event) => setInputValue(event.currentTarget.value)}
-          />
+          <div className="input-shell">
+            <input
+              className="url-input"
+              type="text"
+              inputMode="url"
+              placeholder="https://arxiv.org/abs/1706.03762"
+              value={inputValue}
+              onInput={(event) => setInputValue(event.currentTarget.value)}
+            />
+            {inputValue ? (
+              <button
+                className="input-clear"
+                type="button"
+                aria-label="Clear saved paper link"
+                onClick={() => {
+                  setInputValue("");
+                  onClearInput();
+                }}
+              >
+                x
+              </button>
+            ) : null}
+          </div>
           <button className="primary-button" type="submit">
             Skim in Reader
           </button>

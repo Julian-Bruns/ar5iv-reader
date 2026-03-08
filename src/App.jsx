@@ -27,7 +27,9 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [libraryInput, setLibraryInput] = useState("");
   const revokeAssetsRef = useRef(() => {});
+  const route = parseRoute();
 
   useEffect(() => {
     void refreshLibrary();
@@ -51,8 +53,6 @@ export default function App() {
 
     revokeAssetsRef.current();
     revokeAssetsRef.current = () => {};
-
-    const route = parseRoute();
 
     if (route.kind === "library") {
       setReader({ status: "idle", paper: null, error: "" });
@@ -146,16 +146,27 @@ export default function App() {
   }, [routeVersion]);
 
   useEffect(() => {
+    if (route.kind !== "receive") {
+      return;
+    }
+
+    const incomingValue =
+      route.payload.url || route.payload.text || route.payload.title || "";
+
+    if (incomingValue) {
+      setLibraryInput(incomingValue);
+    }
+  }, [route.kind, route.payload?.text, route.payload?.title, route.payload?.url]);
+
+  useEffect(() => {
     return () => revokeAssetsRef.current();
   }, []);
-
-  const route = parseRoute();
   const receiveMessage =
     route.kind === "receive" && reader.status === "error" ? reader.error : "";
   const defaultInput =
     route.kind === "receive"
-      ? route.payload.url || route.payload.text || route.payload.title || ""
-      : "";
+      ? route.payload.url || route.payload.text || route.payload.title || libraryInput
+      : libraryInput;
 
   async function refreshLibrary() {
     const papers = await listPapers().catch((error) => {
@@ -183,6 +194,7 @@ export default function App() {
       return;
     }
 
+    setLibraryInput(trimmed);
     const target = new URL("/receive", window.location.origin);
     target.searchParams.set("url", trimmed);
     navigate(`${target.pathname}${target.search}`);
@@ -292,6 +304,7 @@ export default function App() {
           importing={importing}
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
+          onClearInput={() => setLibraryInput("")}
           onSubmitUrl={openReceiveInput}
           onOpenPaper={(paperId) => navigate(`/?paper=${encodeURIComponent(paperId)}`)}
           onExportPaper={handleExportPaper}
