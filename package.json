@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "cf:pages:build": "vite build",
+    "cf:pages:build": "bun install --frozen-lockfile && vite build",
     "cf:worker:dev": "cd worker && bunx wrangler dev",
     "cf:worker:deploy": "cd worker && bunx wrangler deploy"
   },
