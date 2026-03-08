@@ -135,7 +135,7 @@ export default function SyncPanel({
         )}
       </section>
 
-      {nearbyState.currentInvite ? (
+      {nearbyState.currentInvite || nearbyState.creatingInvite ? (
         <div className="sync-modal-backdrop" role="presentation" onClick={onCloseInvite}>
           <section
             className="card sync-modal"
@@ -160,15 +160,26 @@ export default function SyncPanel({
             <div className="sync-grid">
               <div className="sync-identity">
                 <p className="sync-label">Pairing Link</p>
-                <code className="sync-code">{nearbyState.currentInvite.link}</code>
+                <code className="sync-code">
+                  {nearbyState.currentInvite?.link || "Generating pairing link…"}
+                </code>
                 <div className="setup-actions">
-                  <button className="ghost-button" type="button" onClick={onCopyInviteLink}>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={onCopyInviteLink}
+                    disabled={!nearbyState.currentInvite?.link}
+                  >
                     Copy Link
                   </button>
                 </div>
-                <p className="paper-meta">
-                  Expires {new Date(nearbyState.currentInvite.expiresAt).toLocaleTimeString()}.
-                </p>
+                {nearbyState.currentInvite?.expiresAt ? (
+                  <p className="paper-meta">
+                    Expires {new Date(nearbyState.currentInvite.expiresAt).toLocaleTimeString()}.
+                  </p>
+                ) : (
+                  <p className="paper-meta">Waiting for the nearby relay…</p>
+                )}
               </div>
               <div className="sync-qr-shell">
                 {qrMarkup ? (
@@ -177,6 +188,8 @@ export default function SyncPanel({
                     aria-label="Nearby pairing QR code"
                     dangerouslySetInnerHTML={{ __html: qrMarkup }}
                   />
+                ) : nearbyState.creatingInvite ? (
+                  <p className="paper-meta">Generating QR code…</p>
                 ) : (
                   <p className="paper-meta">QR code unavailable.</p>
                 )}

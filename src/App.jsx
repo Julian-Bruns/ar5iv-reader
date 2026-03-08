@@ -55,6 +55,7 @@ export default function App() {
     summaryStatus: NEARBY_SIGNAL_URL ? "" : "relay-unavailable",
     onlinePeerIds: [],
     currentInvite: null,
+    creatingInvite: false,
     joiningInvite: false,
     activeSessionCount: 0
   });
@@ -529,6 +530,7 @@ export default function App() {
           expiresAt: message.expiresAt,
           link: buildPairInviteLink(message.inviteId)
         },
+        creatingInvite: false,
         joiningInvite: false
       }));
       return;
@@ -568,6 +570,7 @@ export default function App() {
 
       setNearbyState((current) => ({
         ...current,
+        creatingInvite: false,
         joiningInvite: false,
         summaryStatus:
           message.code === "invite_not_found" ? "pairing-expired" : current.summaryStatus
@@ -588,22 +591,35 @@ export default function App() {
       return;
     }
 
-    relayClientRef.current.start();
-    relayClientRef.current.createInvite();
     setNearbyState((current) => ({
       ...current,
-      currentInvite: {
-        inviteId: "",
-        expiresAt: "",
-        link: ""
-      }
+      creatingInvite: true,
+      currentInvite: null
     }));
+
+    try {
+      await relayClientRef.current.waitForConnected();
+      const sent = relayClientRef.current.createInvite();
+      if (!sent) {
+        throw new Error("Nearby relay unavailable.");
+      }
+    } catch (error) {
+      console.error("Failed to create nearby invite", error);
+      setNearbyState((current) => ({
+        ...current,
+        creatingInvite: false,
+        currentInvite: null,
+        summaryStatus: "relay-unavailable"
+      }));
+      showToast(stringifyError(error));
+    }
   }
 
   function closeInvite() {
     activeInviteRef.current = "";
     setNearbyState((current) => ({
       ...current,
+      creatingInvite: false,
       currentInvite: null
     }));
   }

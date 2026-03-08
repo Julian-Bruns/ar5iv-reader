@@ -38,6 +38,45 @@ export class NearbyRelayClient extends EventTarget {
     this.connect();
   }
 
+  waitForConnected(timeoutMs = 5000) {
+    if (this.isConnected()) {
+      return Promise.resolve();
+    }
+
+    this.start();
+
+    return new Promise((resolve, reject) => {
+      let timeoutId = 0;
+
+      const handleStatus = (event) => {
+        const status = event.detail;
+        if (status === "connected") {
+          cleanup();
+          resolve();
+          return;
+        }
+
+        if (status === "error") {
+          cleanup();
+          reject(new Error("Nearby relay unavailable."));
+        }
+      };
+
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        this.removeEventListener("status", handleStatus);
+      };
+
+      timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out while connecting to the nearby relay."));
+      }, timeoutMs);
+
+      this.addEventListener("status", handleStatus);
+      this.connect();
+    });
+  }
+
   stop() {
     this.started = false;
     window.clearTimeout(this.reconnectTimer);
@@ -105,7 +144,7 @@ export class NearbyRelayClient extends EventTarget {
   }
 
   createInvite() {
-    this.send({
+    return this.send({
       type: "create-invite",
       deviceId: this.deviceId,
       label: this.label
@@ -113,7 +152,7 @@ export class NearbyRelayClient extends EventTarget {
   }
 
   joinInvite(inviteId) {
-    this.send({
+    return this.send({
       type: "join-invite",
       inviteId,
       deviceId: this.deviceId,
