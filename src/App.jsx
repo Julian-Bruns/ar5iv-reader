@@ -35,7 +35,35 @@ import { NearbyRelayClient } from "./lib/nearby/relayClient";
 import { runLibrarySyncSession, runPairSession } from "./lib/nearby/syncProtocol";
 import { NearbyWebRtcSession } from "./lib/nearby/webrtcSession";
 
-const NEARBY_SIGNAL_URL = import.meta.env.VITE_NEARBY_SIGNAL_URL || "";
+function normalizeNearbySignalUrl(value) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  const withProtocol = /^[a-z]+:\/\//i.test(rawValue) ? rawValue : `https://${rawValue}`;
+
+  try {
+    const url = new URL(withProtocol);
+    if (url.protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (url.protocol === "http:") {
+      url.protocol = "ws:";
+    } else if (!["ws:", "wss:"].includes(url.protocol)) {
+      return "";
+    }
+
+    if (!url.pathname || url.pathname === "/") {
+      url.pathname = "/ws";
+    }
+
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+const NEARBY_SIGNAL_URL = normalizeNearbySignalUrl(import.meta.env.VITE_NEARBY_SIGNAL_URL);
 const APP_VERSION = "0.3.0";
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 
