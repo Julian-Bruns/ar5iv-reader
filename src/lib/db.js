@@ -1,5 +1,4 @@
 import { collectAssetUrls, fetchAssetRecords } from "./assets";
-import { extractPaperMetadata } from "./sanitizePaper";
 
 const DB_NAME = "ar5iv-reader";
 const DB_VERSION = 3;
@@ -51,7 +50,6 @@ export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
   const savedAt = new Date().toISOString();
   const existing = await getRawPaperRecord(sessionPaper.id);
   const revisionMs = await claimNextRevisionMs();
-  const { title } = extractPaperMetadata(sessionPaper.html, sessionPaper.id);
   const assetUrls = collectAssetUrls(sessionPaper.html, sessionPaper.ar5ivUrl);
   const assetRecords = await fetchAssetRecords(sessionPaper.id, assetUrls);
 
@@ -59,7 +57,7 @@ export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
     id: sessionPaper.id,
     sourceUrl: sessionPaper.sourceUrl,
     ar5ivUrl: sessionPaper.ar5ivUrl,
-    title: title || sessionPaper.titleHint || sessionPaper.id,
+    title: String(sessionPaper.title || sessionPaper.titleHint || sessionPaper.id).trim(),
     savedAt: existing?.savedAt || savedAt,
     updatedAt: new Date(revisionMs).toISOString(),
     revisionMs,

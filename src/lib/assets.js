@@ -4,6 +4,10 @@ const ASSET_FETCH_TIMEOUT_MS = 8_000;
 const ASSET_FETCH_CONCURRENCY = 4;
 
 export function collectAssetUrls(rawHtml, baseUrl) {
+  if (!rawHtml || (!rawHtml.includes("<img") && !rawHtml.includes("srcset="))) {
+    return [];
+  }
+
   const documentNode = new DOMParser().parseFromString(rawHtml, "text/html");
   const article =
     documentNode.querySelector("article.ltx_document") ||

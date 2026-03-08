@@ -110,7 +110,7 @@ export default function SyncPanel({
                   <h3>{pair.peerLabel}</h3>
                   <p className="paper-id">{pair.peerDeviceId}</p>
                   <p className="paper-meta">
-                    {formatPairSyncStatus(pair.lastSyncStatus, pair.lastSyncedAt)}
+                    {renderPairStatus(pair, nearbyState.onlinePeerIds, formatPairSyncStatus)}
                   </p>
                 </div>
                 <div className="paper-actions">
@@ -254,4 +254,16 @@ function renderRelayState(status) {
   }
 
   return "offline";
+}
+
+function renderPairStatus(pair, onlinePeerIds, formatPairSyncStatus) {
+  if (onlinePeerIds.includes(pair.peerDeviceId)) {
+    if (pair.lastSyncedAt) {
+      return `Online nearby. Last synced ${new Date(pair.lastSyncedAt).toLocaleString()}.`;
+    }
+
+    return "Online nearby. Waiting for the first sync.";
+  }
+
+  return formatPairSyncStatus(pair.lastSyncStatus, pair.lastSyncedAt);
 }

@@ -39,7 +39,7 @@ export function formatPairSyncStatus(status, syncedAt = 0) {
   }
 
   if (status === "paired") {
-    return "Paired. Waiting for the device to come online.";
+    return "Paired. Waiting for the first nearby sync.";
   }
 
   if (status === "synced" && syncedAt) {
