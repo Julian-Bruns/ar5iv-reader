@@ -9,8 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "cf:pages:build": "vite build",
-    "cf:worker:dev": "bunx --cwd worker wrangler dev",
-    "cf:worker:deploy": "bunx --cwd worker wrangler deploy"
+    "cf:worker:dev": "cd worker && bunx wrangler dev",
+    "cf:worker:deploy": "cd worker && bunx wrangler deploy"
   },
   "dependencies": {
     "dompurify": "^3.2.7",
