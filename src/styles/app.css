@@ -465,9 +465,15 @@ input {
   padding: 0;
 }
 
-.paper-body math[alttext],
-.paper-body .ltx_Math[alttext] {
+.paper-body [data-copy-latex-root="true"] {
   outline: none;
+}
+
+.paper-body [data-copy-latex-root="true"],
+.paper-body [data-copy-latex-root="true"] * {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .source-link {

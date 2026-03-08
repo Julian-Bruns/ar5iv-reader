@@ -3,18 +3,23 @@ export function installMathCopy(root, showToast) {
     return () => {};
   }
 
-  const selector = "math[alttext], .ltx_Math[alttext]";
+  const copyableSelector = "math[alttext], .ltx_Math[alttext]";
+  const copyRootSelector = '[data-copy-latex-root="true"]';
 
-  for (const node of root.querySelectorAll(selector)) {
+  for (const node of root.querySelectorAll(copyableSelector)) {
+    if (node.parentElement?.closest(copyableSelector)) {
+      continue;
+    }
+
     node.setAttribute("tabindex", "0");
     node.setAttribute("role", "button");
     node.setAttribute("aria-label", "Copy LaTeX");
-    node.dataset.copyLatex = "true";
+    node.dataset.copyLatexRoot = "true";
   }
 
   async function copyMathFromEvent(event) {
     const trigger =
-      event.target instanceof Element ? event.target.closest(selector) : null;
+      event.target instanceof Element ? event.target.closest(copyRootSelector) : null;
 
     if (!trigger) {
       return;
