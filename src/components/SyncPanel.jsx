@@ -489,14 +489,6 @@ function renderNearbySummary(nearbyState, pairRouteInviteId) {
     return "That pairing code expired. Create a new one from the device you want to pair.";
   }
 
-  if (nearbyState.summaryStatus === "syncing") {
-    return "A nearby sync session is running.";
-  }
-
-  if (nearbyState.summaryStatus === "no-peer") {
-    return "No paired devices are currently online nearby.";
-  }
-
   if (nearbyState.summaryStatus === "failed") {
     return "Nearby sync failed. Open both devices and try again.";
   }
@@ -505,10 +497,18 @@ function renderNearbySummary(nearbyState, pairRouteInviteId) {
     return "Pairing complete. The library will sync when both devices are open nearby.";
   }
 
+  if (nearbyState.summaryStatus === "syncing") {
+    return "A nearby sync session is running.";
+  }
+
   if (nearbyState.onlinePeerIds.length) {
     return nearbyState.onlinePeerIds.length === 1
       ? "A paired device is online nearby."
       : "Paired devices are online nearby.";
+  }
+
+  if (nearbyState.summaryStatus === "no-peer") {
+    return "No paired devices are currently online nearby.";
   }
 
   return "Ready to pair and sync nearby devices.";
