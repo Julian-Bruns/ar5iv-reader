@@ -99,7 +99,17 @@ export default function App() {
   const pairJoinAttemptRef = useRef("");
   const lastAutoSyncAtRef = useRef(0);
   const savingRef = useRef(false);
+  const pendingSyncRef = useRef({
+    force: false,
+    peerId: "",
+    reason: ""
+  });
   const route = parseRoute();
+  const pairedPeerIds = pairedDevices
+    .map((record) => record.peerDeviceId)
+    .filter(Boolean)
+    .sort();
+  const pairedPeerIdsKey = pairedPeerIds.join(",");
 
   useEffect(() => {
     deviceIdentityRef.current = deviceIdentity;
@@ -111,6 +121,9 @@ export default function App() {
 
   useEffect(() => {
     savingRef.current = saving;
+    if (!saving) {
+      void flushPendingNearbySync();
+    }
   }, [saving]);
 
   useEffect(() => {
@@ -325,9 +338,16 @@ export default function App() {
     }
 
     relayClientRef.current.setIdentity(deviceIdentity);
-    relayClientRef.current.setPeerIds(pairedDevices.map((record) => record.peerDeviceId));
     relayClientRef.current.start();
-  }, [deviceIdentity?.deviceId, deviceIdentity?.label, pairedDevices]);
+  }, [deviceIdentity?.deviceId, deviceIdentity?.label]);
+
+  useEffect(() => {
+    if (!deviceIdentity || !relayClientRef.current) {
+      return;
+    }
+
+    relayClientRef.current.setPeerIds(pairedPeerIds);
+  }, [deviceIdentity?.deviceId, pairedPeerIdsKey]);
 
   useEffect(() => {
     if (!deviceIdentity || !route.pairInviteId || !relayClientRef.current) {
@@ -667,17 +687,20 @@ export default function App() {
         ...current,
         summaryStatus: "relay-unavailable"
       }));
-      return;
+      return false;
     }
 
     if (savingRef.current) {
-      return;
+      if (shouldRetrySync(reason, force)) {
+        queueNearbySync(reason, { force, peerId });
+      }
+      return false;
     }
 
     relayClientRef.current.start();
 
     if (!force && Date.now() - lastAutoSyncAtRef.current < AUTO_SYNC_INTERVAL_MS) {
-      return;
+      return false;
     }
 
     lastAutoSyncAtRef.current = Date.now();
@@ -693,13 +716,22 @@ export default function App() {
         ...current,
         summaryStatus: "no-peer"
       }));
-      return;
+      if (shouldRetrySync(reason, force)) {
+        queueNearbySync(reason, { force, peerId });
+      }
+      return false;
     }
 
     let started = false;
 
     for (const nextPeerId of targetPeerIds) {
       if (hasActiveSession(nextPeerId)) {
+        if (shouldRetrySync(reason, force)) {
+          queueNearbySync(reason, {
+            force,
+            peerId: nextPeerId
+          });
+        }
         continue;
       }
 
@@ -709,10 +741,16 @@ export default function App() {
         continue;
       }
 
-      if (reason === "manual") {
-        relayClientRef.current.sendSignal(nextPeerId, crypto.randomUUID(), {
-          type: "sync-request",
-          mode: "sync"
+      const sent = relayClientRef.current.sendSignal(nextPeerId, crypto.randomUUID(), {
+        type: "sync-request",
+        mode: "sync"
+      });
+      if (sent) {
+        started = true;
+      } else if (shouldRetrySync(reason, force)) {
+        queueNearbySync(reason, {
+          force,
+          peerId: nextPeerId
         });
       }
     }
@@ -722,7 +760,45 @@ export default function App() {
         ...current,
         summaryStatus: "syncing"
       }));
+      return true;
     }
+
+    return false;
+  }
+
+  function queueNearbySync(reason, { force = false, peerId = "" } = {}) {
+    const pending = pendingSyncRef.current;
+    pendingSyncRef.current = {
+      reason: pending.reason || reason,
+      force: pending.force || force,
+      peerId: pending.peerId || peerId
+    };
+  }
+
+  async function flushPendingNearbySync() {
+    const pending = pendingSyncRef.current;
+    if (!pending.reason) {
+      return false;
+    }
+
+    pendingSyncRef.current = {
+      force: false,
+      peerId: "",
+      reason: ""
+    };
+
+    return triggerNearbySync(pending.reason, {
+      force: pending.force,
+      peerId: pending.peerId
+    });
+  }
+
+  function shouldRetrySync(reason, force) {
+    if (force) {
+      return true;
+    }
+
+    return ["delete", "import", "pairing", "save"].includes(reason);
   }
 
   async function handleIncomingSignal(message) {
@@ -802,6 +878,9 @@ export default function App() {
                 ? current.summaryStatus
                 : "no-peer"
       }));
+      if (!sessionsRef.current.size) {
+        void flushPendingNearbySync();
+      }
     });
 
     void session.start();
