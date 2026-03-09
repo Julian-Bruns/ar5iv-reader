@@ -88,7 +88,7 @@ export default function BookmarkSetupPanel({ open, onClose }) {
         <p>
           4. Later, open any `arxiv.org/abs/...` page and press that bookmark. The
           bookmark now tries to launch the installed app first, then falls back to
-          the browser route.
+          skim mode in a new browser tab.
         </p>
       </div>
 

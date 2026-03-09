@@ -154,6 +154,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || !("launchQueue" in window)) {
+      return;
+    }
+
+    window.launchQueue.setConsumer((launchParams) => {
+      const targetUrl = launchParams?.targetURL;
+      if (!(targetUrl instanceof URL) || targetUrl.origin !== window.location.origin) {
+        return;
+      }
+
+      const nextUrl = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+      const currentUrl =
+        `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+      if (nextUrl === currentUrl) {
+        setRouteVersion((value) => value + 1);
+        return;
+      }
+
+      window.history.pushState({}, "", nextUrl);
+      setRouteVersion((value) => value + 1);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!toast) {
       return undefined;
     }

@@ -18,8 +18,9 @@ export function buildBookmarkletHref(origin) {
     "let completed=false;",
     "const cancelFallback=()=>{completed=true;if(fallbackTimer){clearTimeout(fallbackTimer);fallbackTimer=0;}};",
     "document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){cancelFallback();}},{once:true});",
+    "window.addEventListener('blur',cancelFallback,{once:true});",
     "window.addEventListener('pagehide',cancelFallback,{once:true});",
-    "fallbackTimer=window.setTimeout(()=>{if(!completed){window.location.assign(receiveUrl.toString());}},900);",
+    "fallbackTimer=window.setTimeout(()=>{if(completed){return;}const fallbackWindow=window.open(receiveUrl.toString(),'_blank','noopener,noreferrer');if(!fallbackWindow){window.location.assign(receiveUrl.toString());}},900);",
     "window.location.assign(protocolUrl.toString());",
     "})();"
   ].join("");
