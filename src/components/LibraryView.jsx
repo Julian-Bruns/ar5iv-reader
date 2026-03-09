@@ -15,6 +15,7 @@ export default function LibraryView({
   pairRouteInviteId,
   onCreateInvite,
   onCloseInvite,
+  onJoinInvite,
   onCopyInviteLink,
   onRenameThisDevice,
   onRenamePeer,
@@ -95,6 +96,7 @@ export default function LibraryView({
         pairRouteInviteId={pairRouteInviteId}
         onCreateInvite={onCreateInvite}
         onCloseInvite={onCloseInvite}
+        onJoinInvite={onJoinInvite}
         onCopyInviteLink={onCopyInviteLink}
         onRenameThisDevice={onRenameThisDevice}
         onRenamePeer={onRenamePeer}

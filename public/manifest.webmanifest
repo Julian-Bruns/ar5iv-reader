@@ -1,10 +1,14 @@
 {
   "name": "ar5iv Reader",
   "short_name": "ar5iv",
+  "id": "/",
   "description": "Read ar5iv papers offline and copy LaTeX from rendered math.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "background_color": "#f8f1e5",
   "theme_color": "#f45d31",
   "icons": [
@@ -18,6 +22,12 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+ar5iv",
+      "url": "/receive?protocol=%s"
     }
   ],
   "share_target": {

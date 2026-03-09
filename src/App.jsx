@@ -22,6 +22,7 @@ import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
 import { extractPaperMetadata, sanitizePaperHtml } from "./lib/sanitizePaper";
 import { getOrCreateDeviceIdentity, updateDeviceIdentityLabel } from "./lib/nearby/deviceIdentity";
+import { extractInviteId } from "./lib/nearby/inviteCode";
 import { formatPairSyncStatus } from "./lib/nearby/merge";
 import {
   forgetPairedDevice,
@@ -34,6 +35,7 @@ import {
 import { NearbyRelayClient } from "./lib/nearby/relayClient";
 import { runLibrarySyncSession, runPairSession } from "./lib/nearby/syncProtocol";
 import { NearbyWebRtcSession } from "./lib/nearby/webrtcSession";
+import { ensurePersistentStorage } from "./lib/persistence";
 
 function normalizeNearbySignalUrl(value) {
   const rawValue = String(value || "").trim();
@@ -96,6 +98,7 @@ export default function App() {
   const activeInviteRef = useRef("");
   const pairJoinAttemptRef = useRef("");
   const lastAutoSyncAtRef = useRef(0);
+  const savingRef = useRef(false);
   const route = parseRoute();
 
   useEffect(() => {
@@ -105,6 +108,10 @@ export default function App() {
   useEffect(() => {
     pairedDevicesRef.current = pairedDevices;
   }, [pairedDevices]);
+
+  useEffect(() => {
+    savingRef.current = saving;
+  }, [saving]);
 
   useEffect(() => {
     void refreshLibrary();
@@ -335,12 +342,7 @@ export default function App() {
       return;
     }
 
-    pairJoinAttemptRef.current = route.pairInviteId;
-    setNearbyState((current) => ({
-      ...current,
-      joiningInvite: true
-    }));
-    relayClientRef.current.joinInvite(route.pairInviteId);
+    void handleJoinInvite(route.pairInviteId);
   }, [deviceIdentity?.deviceId, nearbyState.relayStatus, route.pairInviteId]);
 
   const receiveMessage =
@@ -370,7 +372,8 @@ export default function App() {
     try {
       const [fallbackSetting, nextIdentity] = await Promise.all([
         getSetting("pdfFallbackNoticeEnabled"),
-        getOrCreateDeviceIdentity()
+        getOrCreateDeviceIdentity(),
+        ensurePersistentStorage()
       ]);
 
       setFallbackNoticeEnabled(fallbackSetting?.value !== false);
@@ -424,13 +427,16 @@ export default function App() {
 
     setSaving(true);
     try {
+      await ensurePersistentStorage();
       await savePaper(reader.paper, {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
       showToast("Saved for offline reading.");
       navigate(`/?paper=${encodeURIComponent(reader.paper.id)}`);
-      void triggerNearbySync("save");
+      void triggerNearbySync("save", {
+        force: true
+      });
     } catch (error) {
       showToast("Save failed.");
       setReader((current) => ({
@@ -485,6 +491,7 @@ export default function App() {
   async function handleImportLibrary(file) {
     setImporting(true);
     try {
+      await ensurePersistentStorage();
       await importLibraryBackup(file);
       await refreshLibrary();
       setRouteVersion((value) => value + 1);
@@ -565,6 +572,7 @@ export default function App() {
     }
 
     if (message.type === "invite-joined") {
+      pairJoinAttemptRef.current = "";
       setNearbyState((current) => ({
         ...current,
         joiningInvite: false
@@ -592,6 +600,7 @@ export default function App() {
     }
 
     if (message.type === "error") {
+      pairJoinAttemptRef.current = "";
       if (new URL(window.location.href).searchParams.get("pair")) {
         clearPairQueryParam();
       }
@@ -605,7 +614,7 @@ export default function App() {
       }));
 
       if (message.code === "invite_not_found") {
-        showToast("That nearby pairing link has expired.");
+        showToast("That nearby pairing code has expired.");
       }
     }
   }
@@ -658,6 +667,10 @@ export default function App() {
         ...current,
         summaryStatus: "relay-unavailable"
       }));
+      return;
+    }
+
+    if (savingRef.current) {
       return;
     }
 
@@ -870,7 +883,9 @@ export default function App() {
       await refreshPairedDevices();
       if (result.pulledCount) {
         await refreshLibrary();
-        setRouteVersion((value) => value + 1);
+        if (parseRoute().kind === "saved-paper") {
+          setRouteVersion((value) => value + 1);
+        }
       }
       setNearbyState((current) => ({
         ...current,
@@ -907,9 +922,52 @@ export default function App() {
 
     try {
       await navigator.clipboard.writeText(nearbyState.currentInvite.link);
-      showToast("Copied nearby pairing link.");
+      showToast("Copied fallback pairing link.");
     } catch {
       showToast("Clipboard copy failed.");
+    }
+  }
+
+  async function handleJoinInvite(value) {
+    const inviteId = extractInviteId(value);
+    if (!inviteId) {
+      showToast("Enter a valid nearby pairing code.");
+      return false;
+    }
+
+    if (!NEARBY_SIGNAL_URL || !relayClientRef.current) {
+      setNearbyState((current) => ({
+        ...current,
+        summaryStatus: "relay-unavailable"
+      }));
+      showToast("Nearby relay unavailable.");
+      return false;
+    }
+
+    pairJoinAttemptRef.current = inviteId;
+    setNearbyState((current) => ({
+      ...current,
+      joiningInvite: true,
+      summaryStatus: ""
+    }));
+
+    try {
+      await relayClientRef.current.waitForConnected();
+      const sent = relayClientRef.current.joinInvite(inviteId);
+      if (!sent) {
+        throw new Error("Nearby relay unavailable.");
+      }
+
+      return true;
+    } catch (error) {
+      pairJoinAttemptRef.current = "";
+      setNearbyState((current) => ({
+        ...current,
+        joiningInvite: false,
+        summaryStatus: current.relayStatus === "error" ? "relay-unavailable" : current.summaryStatus
+      }));
+      showToast(stringifyError(error));
+      return false;
     }
   }
 
@@ -998,6 +1056,7 @@ export default function App() {
           pairRouteInviteId={route.pairInviteId}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
+          onJoinInvite={handleJoinInvite}
           onCopyInviteLink={handleCopyInviteLink}
           onRenameThisDevice={handleRenameThisDevice}
           onRenamePeer={handleRenamePeer}
@@ -1023,17 +1082,20 @@ function parseRoute() {
   const url = new URL(window.location.href);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const paperId = url.searchParams.get("paper")?.trim() || "";
-  const pairInviteId = url.searchParams.get("pair")?.trim() || "";
+  const pairInviteId =
+    extractInviteId(url.searchParams.get("pair")) ||
+    extractProtocolPairId(url.searchParams.get("protocol"));
 
   if (pathname === "/receive") {
+    const protocolPayload = parseProtocolPayload(url.searchParams.get("protocol"));
     return {
       kind: "receive",
       paperId: "",
       pairInviteId,
       payload: {
-        url: url.searchParams.get("url") || "",
-        text: url.searchParams.get("text") || "",
-        title: url.searchParams.get("title") || ""
+        url: url.searchParams.get("url") || protocolPayload.url || "",
+        text: url.searchParams.get("text") || protocolPayload.text || "",
+        title: url.searchParams.get("title") || protocolPayload.title || ""
       }
     };
   }
@@ -1053,6 +1115,39 @@ function parseRoute() {
     pairInviteId,
     payload: null
   };
+}
+
+function extractProtocolPairId(protocolValue) {
+  return extractInviteId(parseProtocolPayload(protocolValue).pair);
+}
+
+function parseProtocolPayload(protocolValue) {
+  const rawValue = String(protocolValue || "").trim();
+  if (!rawValue) {
+    return {
+      pair: "",
+      text: "",
+      title: "",
+      url: ""
+    };
+  }
+
+  try {
+    const protocolUrl = new URL(rawValue);
+    return {
+      pair: protocolUrl.searchParams.get("pair") || "",
+      text: protocolUrl.searchParams.get("text") || "",
+      title: protocolUrl.searchParams.get("title") || "",
+      url: protocolUrl.searchParams.get("url") || ""
+    };
+  } catch {
+    return {
+      pair: "",
+      text: "",
+      title: "",
+      url: ""
+    };
+  }
 }
 
 function buildPairInviteLink(inviteId) {

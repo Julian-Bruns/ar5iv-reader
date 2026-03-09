@@ -8,7 +8,7 @@ A Preact + Vite PWA for reading ar5iv papers, copying LaTeX from rendered math, 
 - Display math and wide tabular layouts can scroll horizontally on mobile instead of clipping off-screen.
 - Library export/import is a full backup, not only paper IDs.
 - Cross-device sync is now nearby-only:
-  - pair devices once with a QR code or pairing link
+  - pair devices once with a short code plus an in-app QR scanner
   - later syncs reuse the remembered pairing
   - actual library data stays local on each device
   - the relay is used only for presence and WebRTC signaling
@@ -39,7 +39,7 @@ The frontend builds locally without the nearby relay. To use nearby sync outside
 ## Nearby Sync Model
 
 - Each install creates a persistent local device identity.
-- Pairing uses a one-time QR code or pairing link.
+- Pairing uses a one-time code or an in-app QR scan.
 - After pairing, later launches automatically look for already-paired devices that are open on the same network.
 - If a paired device is found, the app uses the Worker for signaling and a WebRTC data channel for the actual transfer.
 - Paper HTML, assets, and the library database are never stored on the relay.
@@ -135,15 +135,15 @@ bun run build
 
 1. Open the deployed app over HTTPS.
 2. Install it from the browser menu.
-3. Open `Bookmark Setup` in the app.
-4. Drag `Open in ar5iv Reader` into the bookmarks bar once.
-5. Later, use that bookmark from an arXiv abstract page to open the paper in the reader.
+3. On phones, you can use the browser share sheet and choose `ar5iv Reader`.
+4. On desktop, open `Bookmark Setup` in the app and drag `Open in ar5iv Reader` into the bookmarks bar once.
+5. Later, use the share target or bookmark to open the paper in the reader.
 
 ## Nearby Pairing Flow
 
 1. On Device A, open `Nearby Sync`.
 2. Tap `Add Device`.
-3. On Device B, open the shown link or scan the QR code.
+3. On Device B, open `Nearby Sync`, then type the shown code or scan the QR code inside the app.
 4. Keep both apps open until pairing completes.
 5. After that, nearby syncs reuse the remembered pairing automatically.
 
@@ -166,7 +166,7 @@ Before sending the link to friends, test:
 ## Routes
 
 - `/` shows the local library dashboard
-- `/receive?url=<url>&title=<title>&text=<text>` handles bookmarklet ingress
+- `/receive?url=<url>&title=<title>&text=<text>` handles share/bookmarklet ingress
 - `/?paper=<id>` opens a saved offline paper
 - `/?pair=<inviteId>` handles one-time nearby device pairing
 

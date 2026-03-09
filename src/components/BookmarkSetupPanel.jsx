@@ -60,7 +60,11 @@ export default function BookmarkSetupPanel({ open, onClose }) {
 
       <div className="setup-guide">
         <p>
-          1. Install the reader.
+          On phones, the more stable option is the system share sheet: open an arXiv
+          page, tap Share, then choose ar5iv Reader.
+        </p>
+        <p>
+          1. Install the reader if you want desktop bookmark launching too.
         </p>
         <p>
           2. Open a new tab. If you do not see the bookmarks bar, click the
@@ -82,7 +86,9 @@ export default function BookmarkSetupPanel({ open, onClose }) {
           </button>
         </div>
         <p>
-          4. Later, open any `arxiv.org/abs/...` page and press that bookmark.
+          4. Later, open any `arxiv.org/abs/...` page and press that bookmark. The
+          bookmark now tries to launch the installed app first, then falls back to
+          the browser route.
         </p>
       </div>
 
