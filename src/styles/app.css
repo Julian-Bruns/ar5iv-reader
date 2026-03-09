@@ -89,6 +89,128 @@ input {
   width: min(1440px, 100%);
 }
 
+.reader-tabs-shell {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 0.9rem;
+  padding: 0.35rem;
+  overflow: hidden;
+  background: rgba(255, 248, 239, 0.62);
+  border: 1px solid rgba(122, 31, 21, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 16px 34px rgba(74, 44, 29, 0.11);
+  backdrop-filter: blur(14px);
+}
+
+.reader-tabs-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 3.5rem;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(239, 227, 209, 0), rgba(239, 227, 209, 0.92));
+}
+
+.reader-tabs {
+  display: flex;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
+  scrollbar-width: thin;
+}
+
+.reader-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: min(18rem, 48vw);
+  max-width: 22rem;
+  border: 1px solid rgba(122, 31, 21, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 251, 245, 0.72);
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.reader-tab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(122, 31, 21, 0.18);
+}
+
+.reader-tab--active {
+  background: rgba(255, 252, 246, 0.96);
+  border-color: rgba(122, 31, 21, 0.24);
+  box-shadow: 0 10px 18px rgba(74, 44, 29, 0.09);
+}
+
+.reader-tab-button {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0.8rem 0.7rem 0.8rem 0.85rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reader-tab-indicator {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: rgba(122, 31, 21, 0.18);
+}
+
+.reader-tab-indicator--ready {
+  background: rgba(244, 93, 49, 0.9);
+}
+
+.reader-tab-indicator--loading {
+  background: rgba(247, 178, 103, 0.94);
+}
+
+.reader-tab-indicator--error {
+  background: rgba(158, 47, 31, 0.92);
+}
+
+.reader-tab-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.94rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-tab-close {
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(44, 33, 29, 0.58);
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.reader-tab-close:hover {
+  background: rgba(122, 31, 21, 0.08);
+  color: var(--accent-dark);
+  transform: scale(1.04);
+}
+
 .hero-panel,
 .card,
 .reader-topbar,
@@ -978,6 +1100,15 @@ input {
     justify-items: flex-start;
   }
 
+  .reader-tabs-shell {
+    padding: 0.3rem;
+    backdrop-filter: none;
+  }
+
+  .reader-tab {
+    min-width: min(15.5rem, 76vw);
+  }
+
   .banner--notice {
     flex-direction: column;
   }
@@ -1053,6 +1184,7 @@ input {
 
   .hero-panel,
   .card,
+  .reader-tabs-shell,
   .reader-topbar,
   .reader-frame,
   .reader-quickbar-inner {

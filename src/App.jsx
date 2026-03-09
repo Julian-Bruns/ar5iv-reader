@@ -73,6 +73,7 @@ export default function App() {
   const [routeVersion, setRouteVersion] = useState(0);
   const [library, setLibrary] = useState({ loading: true, papers: [] });
   const [reader, setReader] = useState({ status: "idle", paper: null, error: "" });
+  const [openTabs, setOpenTabs] = useState([]);
   const [toast, setToast] = useState("");
   const [importing, setImporting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -89,7 +90,8 @@ export default function App() {
     joiningInvite: false,
     activeSessionCount: 0
   });
-  const revokeAssetsRef = useRef(() => {});
+  const openTabsRef = useRef([]);
+  const tabAssetRevokersRef = useRef(new Map());
   const relayClientRef = useRef(null);
   const sessionsRef = useRef(new Map());
   const deviceIdentityRef = useRef(null);
@@ -105,11 +107,17 @@ export default function App() {
     reason: ""
   });
   const route = parseRoute();
+  const activeRouteTab = getRouteTab(route);
+  const activeTabKey = activeRouteTab?.key || "";
   const pairedPeerIds = pairedDevices
     .map((record) => record.peerDeviceId)
     .filter(Boolean)
     .sort();
   const pairedPeerIdsKey = pairedPeerIds.join(",");
+
+  useEffect(() => {
+    openTabsRef.current = openTabs;
+  }, [openTabs]);
 
   useEffect(() => {
     deviceIdentityRef.current = deviceIdentity;
@@ -144,7 +152,10 @@ export default function App() {
     return () => {
       window.removeEventListener("popstate", syncRoute);
       document.removeEventListener("visibilitychange", handleVisible);
-      revokeAssetsRef.current();
+      for (const revoke of tabAssetRevokersRef.current.values()) {
+        revoke();
+      }
+      tabAssetRevokersRef.current.clear();
       relayClientRef.current?.stop();
       for (const session of sessionsRef.current.values()) {
         session.close();
@@ -190,15 +201,34 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    revokeAssetsRef.current();
-    revokeAssetsRef.current = () => {};
-
     if (route.kind === "library") {
       setReader({ status: "idle", paper: null, error: "" });
       return undefined;
     }
 
-    setReader({ status: "loading", paper: null, error: "" });
+    if (activeRouteTab) {
+      const existingTab = openTabsRef.current.find((tab) => tab.key === activeRouteTab.key);
+      updateOpenTabs((currentTabs) =>
+        upsertReaderTab(currentTabs, {
+          key: activeRouteTab.key,
+          id: activeRouteTab.id,
+          href: activeRouteTab.href,
+          title: existingTab?.title || activeRouteTab.title,
+          ...(existingTab?.paper
+            ? {}
+            : {
+                status: "loading",
+                error: "",
+                paper: null
+              })
+        })
+      );
+
+      const nextTab = openTabsRef.current.find((tab) => tab.key === activeRouteTab.key);
+      setReader(nextTab ? getReaderStateFromTab(nextTab) : { status: "loading", paper: null, error: "" });
+    } else {
+      setReader({ status: "loading", paper: null, error: "" });
+    }
 
     const load = async () => {
       try {
@@ -220,17 +250,37 @@ export default function App() {
             return;
           }
 
-          revokeAssetsRef.current = offlineHtml.revoke;
+          revokeTabAssets(activeRouteTab?.key || "");
+          if (activeRouteTab?.key) {
+            tabAssetRevokersRef.current.set(activeRouteTab.key, offlineHtml.revoke);
+          }
+
+          const nextPaper = {
+            ...record,
+            title: record.title || metadata.title || record.id,
+            sanitizedHtml,
+            mode: "saved",
+            view: "html"
+          };
+
+          if (activeRouteTab) {
+            updateOpenTabs((currentTabs) =>
+              upsertReaderTab(currentTabs, {
+                key: activeRouteTab.key,
+                id: activeRouteTab.id,
+                href: buildSavedPaperUrl(activeRouteTab.id),
+                title: nextPaper.title || activeRouteTab.id,
+                status: "ready",
+                error: "",
+                paper: nextPaper
+              })
+            );
+          }
+
           setReader({
             status: "ready",
             error: "",
-            paper: {
-              ...record,
-              title: record.title || metadata.title || record.id,
-              sanitizedHtml,
-              mode: "saved",
-              view: "html"
-            }
+            paper: nextPaper
           });
           return;
         }
@@ -240,6 +290,12 @@ export default function App() {
           throw new Error(
             "No arXiv identifier was found in the shared payload. Paste a valid arXiv URL or ID."
           );
+        }
+
+        const cachedTab = openTabsRef.current.find((tab) => tab.key === getPaperTabKey(id));
+        if (cachedTab?.paper) {
+          setReader(getReaderStateFromTab(cachedTab));
+          return;
         }
 
         const sessionPaper = await fetchPaperById(id, {
@@ -253,14 +309,30 @@ export default function App() {
 
         if (sessionPaper.view === "pdf") {
           showToast("Rendered HTML unavailable. Opened PDF fallback.");
+          const nextPaper = {
+            ...sessionPaper,
+            title: sessionPaper.titleHint || sessionPaper.id,
+            mode: "session"
+          };
+
+          if (activeRouteTab) {
+            updateOpenTabs((currentTabs) =>
+              upsertReaderTab(currentTabs, {
+                key: activeRouteTab.key,
+                id: activeRouteTab.id,
+                href: activeRouteTab.href,
+                title: nextPaper.title || activeRouteTab.id,
+                status: "ready",
+                error: "",
+                paper: nextPaper
+              })
+            );
+          }
+
           setReader({
             status: "ready",
             error: "",
-            paper: {
-              ...sessionPaper,
-              title: sessionPaper.titleHint || sessionPaper.id,
-              mode: "session"
-            }
+            paper: nextPaper
           });
           return;
         }
@@ -281,37 +353,85 @@ export default function App() {
           });
 
           showToast("Rendered HTML failed to open. Opened PDF fallback.");
+          const nextPaper = {
+            ...pdfFallback,
+            title: pdfFallback.titleHint || pdfFallback.id,
+            mode: "session"
+          };
+
+          if (activeRouteTab) {
+            updateOpenTabs((currentTabs) =>
+              upsertReaderTab(currentTabs, {
+                key: activeRouteTab.key,
+                id: activeRouteTab.id,
+                href: activeRouteTab.href,
+                title: nextPaper.title || activeRouteTab.id,
+                status: "ready",
+                error: "",
+                paper: nextPaper
+              })
+            );
+          }
+
           setReader({
             status: "ready",
             error: "",
-            paper: {
-              ...pdfFallback,
-              title: pdfFallback.titleHint || pdfFallback.id,
-              mode: "session"
-            }
+            paper: nextPaper
           });
           return;
+        }
+
+        const nextPaper = {
+          ...sessionPaper,
+          title: metadata.title || sessionPaper.titleHint || sessionPaper.id,
+          sanitizedHtml,
+          mode: "session"
+        };
+
+        if (activeRouteTab) {
+          updateOpenTabs((currentTabs) =>
+            upsertReaderTab(currentTabs, {
+              key: activeRouteTab.key,
+              id: activeRouteTab.id,
+              href: activeRouteTab.href,
+              title: nextPaper.title || activeRouteTab.id,
+              status: "ready",
+              error: "",
+              paper: nextPaper
+            })
+          );
         }
 
         setReader({
           status: "ready",
           error: "",
-          paper: {
-            ...sessionPaper,
-            title: metadata.title || sessionPaper.titleHint || sessionPaper.id,
-            sanitizedHtml,
-            mode: "session"
-          }
+          paper: nextPaper
         });
       } catch (error) {
         if (cancelled) {
           return;
         }
 
+        const message = stringifyError(error);
+
+        if (activeRouteTab) {
+          updateOpenTabs((currentTabs) =>
+            upsertReaderTab(currentTabs, {
+              key: activeRouteTab.key,
+              id: activeRouteTab.id,
+              href: activeRouteTab.href,
+              title: activeRouteTab.title,
+              status: "error",
+              error: message,
+              paper: null
+            })
+          );
+        }
+
         setReader({
           status: "error",
           paper: null,
-          error: stringifyError(error)
+          error: message
         });
       }
     };
@@ -435,6 +555,58 @@ export default function App() {
     setRouteVersion((value) => value + 1);
   }
 
+  function updateOpenTabs(updater) {
+    const nextTabs =
+      typeof updater === "function" ? updater(openTabsRef.current) : updater;
+    openTabsRef.current = nextTabs;
+    setOpenTabs(nextTabs);
+  }
+
+  function revokeTabAssets(tabKey) {
+    if (!tabKey) {
+      return;
+    }
+
+    const revoke = tabAssetRevokersRef.current.get(tabKey);
+    if (!revoke) {
+      return;
+    }
+
+    revoke();
+    tabAssetRevokersRef.current.delete(tabKey);
+  }
+
+  function switchToTab(tabKey) {
+    const tab = openTabsRef.current.find((entry) => entry.key === tabKey);
+    if (!tab) {
+      return;
+    }
+
+    navigate(tab.href || buildSavedPaperUrl(tab.id));
+  }
+
+  function closeTab(tabKey) {
+    const currentTabs = openTabsRef.current;
+    const nextTabs = currentTabs.filter((tab) => tab.key !== tabKey);
+    if (nextTabs.length === currentTabs.length) {
+      return;
+    }
+
+    revokeTabAssets(tabKey);
+    updateOpenTabs(nextTabs);
+
+    if (getRouteTab(parseRoute())?.key !== tabKey) {
+      return;
+    }
+
+    if (!nextTabs.length) {
+      navigate("/");
+      return;
+    }
+
+    navigate(nextTabs[0].href || buildSavedPaperUrl(nextTabs[0].id));
+  }
+
   function showToast(message) {
     setToast(message);
   }
@@ -477,8 +649,28 @@ export default function App() {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
+      const savedPaper = {
+        ...reader.paper,
+        mode: "saved"
+      };
+      updateOpenTabs((currentTabs) =>
+        upsertReaderTab(currentTabs, {
+          key: getPaperTabKey(reader.paper.id),
+          id: reader.paper.id,
+          href: buildSavedPaperUrl(reader.paper.id),
+          title: savedPaper.title || reader.paper.id,
+          status: "ready",
+          error: "",
+          paper: savedPaper
+        })
+      );
+      setReader({
+        status: "ready",
+        error: "",
+        paper: savedPaper
+      });
       showToast("Saved for offline reading.");
-      navigate(`/?paper=${encodeURIComponent(reader.paper.id)}`);
+      navigate(buildSavedPaperUrl(reader.paper.id));
       void triggerNearbySync("save", {
         force: true
       });
@@ -513,10 +705,8 @@ export default function App() {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
+      closeTab(getPaperTabKey(paperId));
       showToast("Removed from library.");
-      if (parseRoute().paperId === paperId) {
-        navigate("/");
-      }
       void triggerNearbySync("delete");
     } catch (error) {
       showToast(stringifyError(error));
@@ -1127,7 +1317,7 @@ export default function App() {
     }));
   }
 
-  const showReader = reader.status === "loading" || Boolean(reader.paper);
+  const showReader = route.kind !== "library" && (reader.status === "loading" || Boolean(activeTabKey));
 
   return (
     <main className="app-shell">
@@ -1136,10 +1326,14 @@ export default function App() {
 
       {showReader ? (
         <ReaderView
+          tabs={openTabs}
+          activeTabKey={activeTabKey}
           paper={reader.paper}
           busy={saving}
           error={reader.error}
           fallbackNoticeEnabled={fallbackNoticeEnabled}
+          onSelectTab={switchToTab}
+          onCloseTab={closeTab}
           onBack={() => navigate("/")}
           onDisableFallbackNotice={disableFallbackNotice}
           onSave={handleSave}
@@ -1258,6 +1452,59 @@ function buildPairInviteLink(inviteId) {
   const url = new URL(window.location.origin);
   url.searchParams.set("pair", inviteId);
   return url.toString();
+}
+
+function getRouteTab(route) {
+  if (route.kind === "saved-paper" && route.paperId) {
+    return {
+      key: getPaperTabKey(route.paperId),
+      id: route.paperId,
+      href: buildSavedPaperUrl(route.paperId),
+      title: route.paperId
+    };
+  }
+
+  if (route.kind !== "receive") {
+    return null;
+  }
+
+  const paperId = extractArxivIdFromIncoming(route.payload);
+  if (!paperId) {
+    return null;
+  }
+
+  return {
+    key: getPaperTabKey(paperId),
+    id: paperId,
+    href: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    title: route.payload.title || paperId
+  };
+}
+
+function getPaperTabKey(paperId) {
+  return paperId ? `paper:${paperId}` : "";
+}
+
+function buildSavedPaperUrl(paperId) {
+  return `/?paper=${encodeURIComponent(paperId)}`;
+}
+
+function upsertReaderTab(currentTabs, nextTab) {
+  const existingTab = currentTabs.find((tab) => tab.key === nextTab.key);
+  const mergedTab = {
+    ...(existingTab || {}),
+    ...nextTab
+  };
+
+  return [mergedTab, ...currentTabs.filter((tab) => tab.key !== nextTab.key)];
+}
+
+function getReaderStateFromTab(tab) {
+  return {
+    status: tab.status || (tab.paper ? "ready" : "idle"),
+    paper: tab.paper || null,
+    error: tab.error || ""
+  };
 }
 
 function clearPairQueryParam() {

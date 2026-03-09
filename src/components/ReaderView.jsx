@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { installMathCopy } from "../lib/mathCopy";
 
 export default function ReaderView({
+  tabs,
+  activeTabKey,
   paper,
   busy,
   error,
   fallbackNoticeEnabled,
+  onSelectTab,
+  onCloseTab,
   onBack,
   onDisableFallbackNotice,
   onSave,
@@ -182,6 +186,53 @@ export default function ReaderView({
 
   return (
     <div className="reader-shell">
+      {tabs?.length ? (
+        <div className="reader-tabs-shell">
+          <div className="reader-tabs" role="tablist" aria-label="Open papers">
+            {tabs.map((tab) => {
+              const isActive = tab.key === activeTabKey;
+              const tabTitle = tab.title || tab.id || "Untitled paper";
+
+              return (
+                <div
+                  className={`reader-tab${isActive ? " reader-tab--active" : ""}`}
+                  key={tab.key}
+                >
+                  <button
+                    className="reader-tab-button"
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    title={tabTitle}
+                    onClick={() => onSelectTab(tab.key)}
+                  >
+                    <span
+                      className={`reader-tab-indicator reader-tab-indicator--${tab.status || "idle"}`}
+                      aria-hidden="true"
+                    />
+                    <span className="reader-tab-label">
+                      {formatTabLabel(tabTitle, tabs.length)}
+                    </span>
+                  </button>
+                  <button
+                    className="reader-tab-close"
+                    type="button"
+                    aria-label={`Close ${tabTitle}`}
+                    title={`Close ${tabTitle}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCloseTab(tab.key);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       <div
         className={`reader-quickbar${showQuickActions ? " reader-quickbar--visible" : ""}`}
       >
@@ -449,4 +500,23 @@ function shouldStartNewChunk(node, chunkSize, chunkChildren) {
   }
 
   return chunkSize >= 6 && node.matches("p, div, figure, table, ul, ol");
+}
+
+function formatTabLabel(title, tabCount) {
+  const normalizedTitle = String(title || "").replace(/\s+/g, " ").trim();
+  if (!normalizedTitle) {
+    return "Untitled";
+  }
+
+  const maxWords = tabCount >= 6 ? 3 : tabCount >= 4 ? 4 : 6;
+  const maxLength = tabCount >= 6 ? 22 : tabCount >= 4 ? 30 : 44;
+  const words = normalizedTitle.split(" ");
+  const shortened = words.slice(0, maxWords).join(" ");
+
+  if (shortened.length <= maxLength && words.length <= maxWords) {
+    return shortened;
+  }
+
+  const clipped = shortened.slice(0, maxLength).trimEnd();
+  return `${clipped}…`;
 }
