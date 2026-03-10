@@ -12,7 +12,7 @@ export const RELAYS = [
 ];
 const FETCH_TIMEOUT_MS = 6500;
 const ABS_INFO_TIMEOUT_MS = 3500;
-const AR5IV_PROBE_TIMEOUT_MS = 1000;
+const ACCESS_INFO_CACHE = new Map();
 
 export class RelayFetchError extends Error {
   constructor(targetUrl, attempts) {
@@ -35,25 +35,19 @@ export async function fetchPaperById(
     }));
   const resolvedTitleHint = resolvedAccessInfo.title || normalizedTitleHint;
 
+  if (resolvedAccessInfo.hasArxivHtml === false) {
+    return buildPdfFallbackPaper(id, {
+      sourceUrl,
+      titleHint: resolvedTitleHint,
+      reason: "arXiv abstract page does not advertise an HTML view."
+    });
+  }
+
   try {
     let fetchedPaper;
 
     if (resolvedAccessInfo.hasArxivHtml === true) {
-      try {
-        fetchedPaper = await fetchArxivHtmlById(id);
-      } catch (primaryError) {
-        try {
-          fetchedPaper = await fetchAr5ivHtmlById(id, {
-            timeoutMs: AR5IV_PROBE_TIMEOUT_MS
-          });
-        } catch {
-          throw primaryError;
-        }
-      }
-    } else if (resolvedAccessInfo.hasArxivHtml === false) {
-      fetchedPaper = await fetchAr5ivHtmlById(id, {
-        timeoutMs: AR5IV_PROBE_TIMEOUT_MS
-      });
+      fetchedPaper = await fetchArxivHtmlById(id);
     } else {
       fetchedPaper = await fetchPaperHtmlById(id);
     }
@@ -78,12 +72,18 @@ export async function fetchPaperById(
 
 export async function fetchPaperAccessInfoById(id, { fallbackTitle = "" } = {}) {
   const normalizedFallback = normalizePaperTitle(fallbackTitle, id);
+  const cached = ACCESS_INFO_CACHE.get(id);
+  if (cached) {
+    return normalizeAccessInfo(cached, normalizedFallback, id);
+  }
 
   try {
     const { body } = await fetchTextThroughRelays(buildArxivAbsUrl(id), {
       timeoutMs: ABS_INFO_TIMEOUT_MS
     });
-    return extractAccessInfoFromAbsHtml(body, normalizedFallback || id);
+    const accessInfo = extractAccessInfoFromAbsHtml(body, normalizedFallback || id);
+    ACCESS_INFO_CACHE.set(id, accessInfo);
+    return accessInfo;
   } catch {
     return {
       title: normalizedFallback || id,
@@ -124,12 +124,6 @@ async function fetchPaperHtmlById(id) {
 async function fetchArxivHtmlById(id) {
   return fetchPaperHtmlFromUrl(buildArxivHtmlUrl(id), {
     timeoutMs: FETCH_TIMEOUT_MS
-  });
-}
-
-async function fetchAr5ivHtmlById(id, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
-  return fetchPaperHtmlFromUrl(buildAr5ivUrl(id), {
-    timeoutMs
   });
 }
 
