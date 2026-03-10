@@ -125,6 +125,7 @@ input {
   align-items: center;
   min-width: min(18rem, 48vw);
   max-width: 22rem;
+  flex-shrink: 0;
   border: 1px solid rgba(122, 31, 21, 0.1);
   border-radius: 18px;
   background: rgba(255, 251, 245, 0.72);
@@ -144,6 +145,22 @@ input {
   background: rgba(255, 252, 246, 0.96);
   border-color: rgba(122, 31, 21, 0.24);
   box-shadow: 0 10px 18px rgba(74, 44, 29, 0.09);
+}
+
+.reader-tab--dragging {
+  opacity: 0.52;
+}
+
+.reader-tab--drop-before {
+  box-shadow:
+    inset 3px 0 0 rgba(244, 93, 49, 0.95),
+    0 10px 18px rgba(74, 44, 29, 0.09);
+}
+
+.reader-tab--drop-after {
+  box-shadow:
+    inset -3px 0 0 rgba(244, 93, 49, 0.95),
+    0 10px 18px rgba(74, 44, 29, 0.09);
 }
 
 .reader-tab-button {

@@ -60,6 +60,11 @@ import {
   buildUrlManifestFingerprint,
   restoreFromUrlManifest
 } from "./lib/urlManifest";
+import {
+  getNextTabAfterClose,
+  reorderReaderTabs,
+  upsertReaderTab
+} from "./lib/readerTabs";
 
 function normalizeNearbySignalUrl(value) {
   const rawValue = String(value || "").trim();
@@ -415,7 +420,7 @@ export default function App() {
         } catch (error) {
           const pdfFallback = buildPdfFallbackPaper(id, {
             sourceUrl: route.payload.url || route.payload.text || "",
-            titleHint: normalizedIncomingTitle,
+            titleHint: accessInfo?.title || normalizedIncomingTitle,
             reason: stringifyError(error)
           });
 
@@ -823,6 +828,7 @@ export default function App() {
 
   function closeTab(tabKey) {
     const currentTabs = openTabsRef.current;
+    const nextActiveTab = getNextTabAfterClose(currentTabs, tabKey);
     const nextTabs = currentTabs.filter((tab) => tab.key !== tabKey);
     if (nextTabs.length === currentTabs.length) {
       return;
@@ -840,7 +846,11 @@ export default function App() {
       return;
     }
 
-    navigate(nextTabs[0].href || buildSavedPaperUrl(nextTabs[0].id));
+    navigate(nextActiveTab?.href || buildSavedPaperUrl(nextActiveTab?.id || nextTabs[0].id));
+  }
+
+  function reorderTabs(draggedKey, targetKey, placement) {
+    updateOpenTabs((currentTabs) => reorderReaderTabs(currentTabs, draggedKey, targetKey, placement));
   }
 
   function showToast(message) {
@@ -1673,6 +1683,7 @@ export default function App() {
           fallbackNoticeEnabled={fallbackNoticeEnabled}
           onSelectTab={switchToTab}
           onCloseTab={closeTab}
+          onReorderTabs={reorderTabs}
           onBack={() => navigate("/")}
           onDisableFallbackNotice={disableFallbackNotice}
           onSave={handleSave}
@@ -1849,16 +1860,6 @@ function getPaperTabKey(paperId) {
 
 function buildSavedPaperUrl(paperId) {
   return `/?paper=${encodeURIComponent(paperId)}`;
-}
-
-function upsertReaderTab(currentTabs, nextTab) {
-  const existingTab = currentTabs.find((tab) => tab.key === nextTab.key);
-  const mergedTab = {
-    ...(existingTab || {}),
-    ...nextTab
-  };
-
-  return [mergedTab, ...currentTabs.filter((tab) => tab.key !== nextTab.key)];
 }
 
 function getReaderStateFromTab(tab) {

@@ -10,6 +10,7 @@ export default function ReaderView({
   fallbackNoticeEnabled,
   onSelectTab,
   onCloseTab,
+  onReorderTabs,
   onBack,
   onDisableFallbackNotice,
   onSave,
@@ -22,6 +23,7 @@ export default function ReaderView({
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [dismissedNotice, setDismissedNotice] = useState(false);
   const [showNoticeMenu, setShowNoticeMenu] = useState(false);
+  const [dragState, setDragState] = useState({ draggedKey: "", targetKey: "", placement: "before" });
 
   useEffect(() => {
     showToastRef.current = showToast;
@@ -58,6 +60,12 @@ export default function ReaderView({
     setDismissedNotice(false);
     setShowNoticeMenu(false);
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
+
+  useEffect(() => {
+    if (!tabs?.length) {
+      setDragState({ draggedKey: "", targetKey: "", placement: "before" });
+    }
+  }, [tabs]);
 
   useEffect(() => {
     const article = articleRef.current;
@@ -192,11 +200,67 @@ export default function ReaderView({
             {tabs.map((tab) => {
               const isActive = tab.key === activeTabKey;
               const tabTitle = tab.title || tab.id || "Untitled paper";
+              const showDropMarker =
+                dragState.draggedKey &&
+                dragState.draggedKey !== tab.key &&
+                dragState.targetKey === tab.key;
 
               return (
                 <div
-                  className={`reader-tab${isActive ? " reader-tab--active" : ""}`}
+                  className={`reader-tab${isActive ? " reader-tab--active" : ""}${
+                    dragState.draggedKey === tab.key ? " reader-tab--dragging" : ""
+                  }${
+                    showDropMarker
+                      ? dragState.placement === "after"
+                        ? " reader-tab--drop-after"
+                        : " reader-tab--drop-before"
+                      : ""
+                  }`}
                   key={tab.key}
+                  draggable={tabs.length > 1}
+                  aria-grabbed={dragState.draggedKey === tab.key}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", tab.key);
+                    setDragState({
+                      draggedKey: tab.key,
+                      targetKey: "",
+                      placement: "before"
+                    });
+                  }}
+                  onDragOver={(event) => {
+                    if (!dragState.draggedKey || dragState.draggedKey === tab.key) {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    const placement =
+                      event.clientX - bounds.left > bounds.width / 2 ? "after" : "before";
+
+                    setDragState((current) =>
+                      current.targetKey === tab.key &&
+                      current.placement === placement &&
+                      current.draggedKey === dragState.draggedKey
+                        ? current
+                        : {
+                            draggedKey: dragState.draggedKey,
+                            targetKey: tab.key,
+                            placement
+                          }
+                    );
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedKey = dragState.draggedKey || event.dataTransfer.getData("text/plain");
+                    if (draggedKey && draggedKey !== tab.key) {
+                      onReorderTabs?.(draggedKey, tab.key, dragState.placement);
+                    }
+                    setDragState({ draggedKey: "", targetKey: "", placement: "before" });
+                  }}
+                  onDragEnd={() => {
+                    setDragState({ draggedKey: "", targetKey: "", placement: "before" });
+                  }}
                 >
                   <button
                     className="reader-tab-button"
