@@ -4,6 +4,7 @@ import {
   buildArxivHtmlUrl,
   buildArxivPdfUrl
 } from "./arxiv";
+import { AR5IV_HEDGE_DELAY_MS, AR5IV_PROBE_TIMEOUT_MS } from "./fetchPolicy";
 import { extractPaperMetadata, normalizePaperTitle } from "./sanitizePaper";
 
 export const RELAYS = [
@@ -35,19 +36,13 @@ export async function fetchPaperById(
     }));
   const resolvedTitleHint = resolvedAccessInfo.title || normalizedTitleHint;
 
-  if (resolvedAccessInfo.hasArxivHtml === false) {
-    return buildPdfFallbackPaper(id, {
-      sourceUrl,
-      titleHint: resolvedTitleHint,
-      reason: "arXiv abstract page does not advertise an HTML view."
-    });
-  }
-
   try {
     let fetchedPaper;
 
     if (resolvedAccessInfo.hasArxivHtml === true) {
-      fetchedPaper = await fetchArxivHtmlById(id);
+      fetchedPaper = await fetchArxivHtmlWithAr5ivHedgeById(id);
+    } else if (resolvedAccessInfo.hasArxivHtml === false) {
+      fetchedPaper = await fetchAr5ivProbeById(id);
     } else {
       fetchedPaper = await fetchPaperHtmlById(id);
     }
@@ -121,10 +116,40 @@ async function fetchPaperHtmlById(id) {
   }
 }
 
-async function fetchArxivHtmlById(id) {
-  return fetchPaperHtmlFromUrl(buildArxivHtmlUrl(id), {
-    timeoutMs: FETCH_TIMEOUT_MS
+async function fetchAr5ivProbeById(id) {
+  return fetchPaperHtmlFromUrl(buildAr5ivUrl(id), {
+    timeoutMs: AR5IV_PROBE_TIMEOUT_MS
   });
+}
+
+async function fetchArxivHtmlWithAr5ivHedgeById(id) {
+  const arxivUrl = buildArxivHtmlUrl(id);
+  const ar5ivUrl = buildAr5ivUrl(id);
+  let resolved = false;
+
+  const markResolved = (result) => {
+    resolved = true;
+    return result;
+  };
+
+  try {
+    return await Promise.any([
+      fetchPaperHtmlFromUrl(arxivUrl, {
+        timeoutMs: FETCH_TIMEOUT_MS
+      }).then(markResolved),
+      fetchPaperHtmlFromUrlAfterDelay(ar5ivUrl, {
+        delayMs: AR5IV_HEDGE_DELAY_MS,
+        shouldStart: () => !resolved,
+        timeoutMs: FETCH_TIMEOUT_MS
+      }).then(markResolved)
+    ]);
+  } catch (error) {
+    const summary =
+      error instanceof AggregateError
+        ? error.errors.map((entry) => stringifyError(entry)).join(" | ")
+        : stringifyError(error);
+    throw new Error(`Unable to fetch rendered paper HTML for ${id}. ${summary}`);
+  }
 }
 
 async function fetchPaperHtmlFromUrl(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
@@ -136,6 +161,21 @@ async function fetchPaperHtmlFromUrl(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS }
     ...result,
     targetUrl
   };
+}
+
+async function fetchPaperHtmlFromUrlAfterDelay(
+  targetUrl,
+  { delayMs = 0, shouldStart = null, timeoutMs = FETCH_TIMEOUT_MS } = {}
+) {
+  if (delayMs > 0) {
+    await delay(delayMs);
+  }
+
+  if (typeof shouldStart === "function" && !shouldStart()) {
+    throw new Error(`Skipped delayed fetch for ${targetUrl}.`);
+  }
+
+  return fetchPaperHtmlFromUrl(targetUrl, { timeoutMs });
 }
 
 export async function fetchTextThroughRelays(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
@@ -351,4 +391,10 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function delay(timeoutMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, timeoutMs);
+  });
 }
