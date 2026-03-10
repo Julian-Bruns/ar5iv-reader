@@ -87,8 +87,9 @@ export default function BookmarkSetupPanel({ open, onClose }) {
         </div>
         <p>
           4. Later, open any `arxiv.org/abs/...` page and press that bookmark. The
-          bookmark now tries to launch the installed app first, then falls back to
-          skim mode in a new browser tab.
+          bookmark opens the paper through the app's `/receive` route in a new tab.
+          Browsers that hand app links to installed PWAs can open the app directly;
+          otherwise the paper opens in skim mode in the browser.
         </p>
       </div>
 

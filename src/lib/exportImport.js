@@ -1,9 +1,14 @@
 import {
   applyLibrarySnapshot,
   exportLibrarySnapshot,
-  getPaper
+  getPaper,
+  listPapers
 } from "./db";
 import { mergeLibrarySnapshots } from "./librarySnapshot";
+import {
+  buildUrlManifest,
+  parseUrlManifest
+} from "./urlManifest";
 
 export async function exportPaperHtml(paperId) {
   const record = await getPaper(paperId);
@@ -23,12 +28,25 @@ export async function exportLibraryBackup() {
   });
 }
 
+export async function exportLibraryUrlManifest(appVersion = "") {
+  const papers = await listPapers();
+  const manifest = buildUrlManifest(papers, appVersion);
+  return new Blob([JSON.stringify(manifest, null, 2)], {
+    type: "application/json;charset=utf-8"
+  });
+}
+
 export async function importLibraryBackup(file) {
   const contents = await file.text();
   const importedSnapshot = JSON.parse(contents);
   const localSnapshot = await exportLibrarySnapshot();
   const mergedSnapshot = mergeLibrarySnapshots(localSnapshot, importedSnapshot);
   await applyLibrarySnapshot(mergedSnapshot);
+}
+
+export async function importLibraryUrlManifest(file) {
+  const contents = await file.text();
+  return parseUrlManifest(contents);
 }
 
 export function downloadBlob(blob, filename) {

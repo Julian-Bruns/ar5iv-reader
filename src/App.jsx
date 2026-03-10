@@ -9,18 +9,29 @@ import {
   getSetting,
   listPapers,
   savePaper,
-  setSetting
+  setSetting,
+  SETTING_KEYS
 } from "./lib/db";
 import {
   downloadBlob,
   exportLibraryBackup,
+  exportLibraryUrlManifest,
   exportPaperHtml,
-  importLibraryBackup
+  importLibraryBackup,
+  importLibraryUrlManifest
 } from "./lib/exportImport";
-import { buildPdfFallbackPaper, fetchPaperById } from "./lib/fetchPaper";
+import {
+  buildPdfFallbackPaper,
+  fetchPaperById,
+  fetchPaperTitleById
+} from "./lib/fetchPaper";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
-import { extractPaperMetadata, sanitizePaperHtml } from "./lib/sanitizePaper";
+import {
+  extractPaperMetadata,
+  normalizePaperTitle,
+  sanitizePaperHtml
+} from "./lib/sanitizePaper";
 import { getOrCreateDeviceIdentity, updateDeviceIdentityLabel } from "./lib/nearby/deviceIdentity";
 import { extractInviteId } from "./lib/nearby/inviteCode";
 import { formatPairSyncStatus } from "./lib/nearby/merge";
@@ -36,6 +47,18 @@ import { NearbyRelayClient } from "./lib/nearby/relayClient";
 import { runLibrarySyncSession, runPairSession } from "./lib/nearby/syncProtocol";
 import { NearbyWebRtcSession } from "./lib/nearby/webrtcSession";
 import { ensurePersistentStorage } from "./lib/persistence";
+import {
+  createRecoveryFileHandle,
+  getRecoveryFilePermission,
+  isRecoveryFileSupported,
+  writeRecoveryFile
+} from "./lib/recoveryFile";
+import {
+  buildUrlManifest,
+  buildUrlManifestFilename,
+  buildUrlManifestFingerprint,
+  restoreFromUrlManifest
+} from "./lib/urlManifest";
 
 function normalizeNearbySignalUrl(value) {
   const rawValue = String(value || "").trim();
@@ -75,10 +98,14 @@ export default function App() {
   const [reader, setReader] = useState({ status: "idle", paper: null, error: "" });
   const [openTabs, setOpenTabs] = useState([]);
   const [toast, setToast] = useState("");
-  const [importing, setImporting] = useState(false);
+  const [backupImporting, setBackupImporting] = useState(false);
+  const [urlImporting, setUrlImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [libraryInput, setLibraryInput] = useState("");
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
+  const [storageDiagnostics, setStorageDiagnostics] = useState(createDefaultStorageDiagnostics());
+  const [restoreStatus, setRestoreStatus] = useState(createDefaultRestoreStatus());
+  const [recoveryFileState, setRecoveryFileState] = useState(createDefaultRecoveryFileState());
   const [deviceIdentity, setDeviceIdentity] = useState(null);
   const [pairedDevices, setPairedDevices] = useState([]);
   const [nearbyState, setNearbyState] = useState({
@@ -96,6 +123,8 @@ export default function App() {
   const sessionsRef = useRef(new Map());
   const deviceIdentityRef = useRef(null);
   const pairedDevicesRef = useRef([]);
+  const recoveryFileHandleRef = useRef(null);
+  const recoveryFingerprintRef = useRef("");
   const onlinePeerIdsRef = useRef(new Set());
   const activeInviteRef = useRef("");
   const pairJoinAttemptRef = useRef("");
@@ -109,6 +138,7 @@ export default function App() {
   const route = parseRoute();
   const activeRouteTab = getRouteTab(route);
   const activeTabKey = activeRouteTab?.key || "";
+  const libraryFingerprint = buildUrlManifestFingerprint(library.papers);
   const pairedPeerIds = pairedDevices
     .map((record) => record.peerDeviceId)
     .filter(Boolean)
@@ -139,6 +169,9 @@ export default function App() {
     void loadSettings();
 
     const syncRoute = () => setRouteVersion((value) => value + 1);
+    const handleInstalled = () => {
+      void refreshStorageDiagnostics();
+    };
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         relayClientRef.current?.start();
@@ -147,10 +180,12 @@ export default function App() {
     };
 
     window.addEventListener("popstate", syncRoute);
+    window.addEventListener("appinstalled", handleInstalled);
     document.addEventListener("visibilitychange", handleVisible);
 
     return () => {
       window.removeEventListener("popstate", syncRoute);
+      window.removeEventListener("appinstalled", handleInstalled);
       document.removeEventListener("visibilitychange", handleVisible);
       for (const revoke of tabAssetRevokersRef.current.values()) {
         revoke();
@@ -197,6 +232,19 @@ export default function App() {
     const timer = window.setTimeout(() => setToast(""), 2200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (
+      library.loading ||
+      !recoveryFileState.enabled ||
+      !recoveryFileHandleRef.current ||
+      libraryFingerprint === recoveryFingerprintRef.current
+    ) {
+      return;
+    }
+
+    void mirrorRecoveryFile(library.papers);
+  }, [library.loading, libraryFingerprint, recoveryFileState.enabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,7 +305,7 @@ export default function App() {
 
           const nextPaper = {
             ...record,
-            title: record.title || metadata.title || record.id,
+            title: normalizePaperTitle(record.title || metadata.title, record.id) || record.id,
             sanitizedHtml,
             mode: "saved",
             view: "html"
@@ -292,6 +340,19 @@ export default function App() {
           );
         }
 
+        const normalizedIncomingTitle = normalizePaperTitle(route.payload.title || "", id) || id;
+        void fetchPaperTitleById(id, {
+          fallbackTitle: normalizedIncomingTitle
+        }).then((resolvedTitle) => {
+          if (cancelled || !resolvedTitle) {
+            return;
+          }
+
+          updateResolvedPaperTitle(id, resolvedTitle, {
+            replaceableTitles: [normalizedIncomingTitle, id]
+          });
+        });
+
         const cachedTab = openTabsRef.current.find((tab) => tab.key === getPaperTabKey(id));
         if (cachedTab?.paper) {
           setReader(getReaderStateFromTab(cachedTab));
@@ -300,7 +361,7 @@ export default function App() {
 
         const sessionPaper = await fetchPaperById(id, {
           sourceUrl: route.payload.url || route.payload.text || "",
-          titleHint: route.payload.title || ""
+          titleHint: normalizedIncomingTitle
         });
 
         if (cancelled) {
@@ -311,7 +372,7 @@ export default function App() {
           showToast("Rendered HTML unavailable. Opened PDF fallback.");
           const nextPaper = {
             ...sessionPaper,
-            title: sessionPaper.titleHint || sessionPaper.id,
+            title: normalizePaperTitle(sessionPaper.titleHint, sessionPaper.id) || sessionPaper.id,
             mode: "session"
           };
 
@@ -348,14 +409,14 @@ export default function App() {
         } catch (error) {
           const pdfFallback = buildPdfFallbackPaper(id, {
             sourceUrl: route.payload.url || route.payload.text || "",
-            titleHint: route.payload.title || "",
+            titleHint: normalizedIncomingTitle,
             reason: stringifyError(error)
           });
 
           showToast("Rendered HTML failed to open. Opened PDF fallback.");
           const nextPaper = {
             ...pdfFallback,
-            title: pdfFallback.titleHint || pdfFallback.id,
+            title: normalizePaperTitle(pdfFallback.titleHint, pdfFallback.id) || pdfFallback.id,
             mode: "session"
           };
 
@@ -383,7 +444,9 @@ export default function App() {
 
         const nextPaper = {
           ...sessionPaper,
-          title: metadata.title || sessionPaper.titleHint || sessionPaper.id,
+          title:
+            normalizePaperTitle(metadata.title || sessionPaper.titleHint, sessionPaper.id) ||
+            sessionPaper.id,
           sanitizedHtml,
           mode: "session"
         };
@@ -527,6 +590,100 @@ export default function App() {
     setLibrary({ loading: false, papers });
   }
 
+  function applyStorageDiagnostics(value) {
+    setStorageDiagnostics(normalizeStorageDiagnostics(value));
+  }
+
+  async function refreshStorageDiagnostics() {
+    const diagnostics = normalizeStorageDiagnostics(await ensurePersistentStorage());
+    setStorageDiagnostics(diagnostics);
+    await setSetting(SETTING_KEYS.storageDiagnostics, diagnostics);
+    return diagnostics;
+  }
+
+  async function persistRecoveryFileState(value) {
+    const normalized = normalizeRecoveryFileState(value);
+    setRecoveryFileState(normalized);
+    await setSetting(SETTING_KEYS.recoveryFileState, normalized);
+    return normalized;
+  }
+
+  async function clearRecoveryFile(reason = "") {
+    recoveryFileHandleRef.current = null;
+    recoveryFingerprintRef.current = "";
+    await setSetting(SETTING_KEYS.recoveryFileHandle, null);
+    await persistRecoveryFileState({
+      supported: isRecoveryFileSupported(),
+      enabled: false,
+      permission: reason || "unknown",
+      lastWrittenAt: "",
+      filename: ""
+    });
+  }
+
+  async function refreshRecoveryFilePermission() {
+    const handle = recoveryFileHandleRef.current;
+    if (!handle) {
+      return persistRecoveryFileState({
+        ...recoveryFileState,
+        supported: isRecoveryFileSupported(),
+        enabled: false,
+        permission: "unknown"
+      });
+    }
+
+    const permission = await getRecoveryFilePermission(handle);
+    return persistRecoveryFileState({
+      ...recoveryFileState,
+      supported: isRecoveryFileSupported(),
+      enabled: permission === "granted" && normalizeRecoveryFileState(recoveryFileState).enabled,
+      permission,
+      filename: String(handle.name || recoveryFileState.filename || "").trim()
+    });
+  }
+
+  async function mirrorRecoveryFile(papers, { showSuccessToast = false } = {}) {
+    const handle = recoveryFileHandleRef.current;
+    if (!handle) {
+      return false;
+    }
+
+    const permission = await getRecoveryFilePermission(handle);
+    if (permission !== "granted") {
+      await clearRecoveryFile(permission);
+      showToast("Recovery file access was lost. Re-enable it to keep backups updated.");
+      return false;
+    }
+
+    try {
+      const manifest = buildUrlManifest(papers, APP_VERSION);
+      const nextFingerprint = buildUrlManifestFingerprint(papers);
+      const writeResult = await writeRecoveryFile(handle, manifest);
+      recoveryFingerprintRef.current = nextFingerprint;
+      await persistRecoveryFileState({
+        supported: isRecoveryFileSupported(),
+        enabled: true,
+        permission,
+        lastWrittenAt: writeResult.lastWrittenAt,
+        filename: writeResult.filename
+      });
+      if (showSuccessToast) {
+        showToast("Recovery file will stay updated on this device.");
+      }
+      return true;
+    } catch (error) {
+      console.error("Failed to mirror recovery file", error);
+      if (isPermissionError(error)) {
+        await clearRecoveryFile("denied");
+        showToast("Recovery file access was lost. Re-enable it to keep backups updated.");
+        return false;
+      }
+
+      showToast("Recovery file update failed.");
+      return false;
+    }
+  }
+
   async function refreshPairedDevices() {
     const nextPairs = await listPairedDevices().catch(() => []);
     setPairedDevices(nextPairs);
@@ -535,15 +692,28 @@ export default function App() {
 
   async function loadSettings() {
     try {
-      const [fallbackSetting, nextIdentity] = await Promise.all([
-        getSetting("pdfFallbackNoticeEnabled"),
+      const [
+        fallbackSetting,
+        nextIdentity,
+        storedStorageDiagnostics,
+        storedRecoveryFileState,
+        storedRecoveryFileHandle
+      ] = await Promise.all([
+        getSetting(SETTING_KEYS.pdfFallbackNoticeEnabled),
         getOrCreateDeviceIdentity(),
-        ensurePersistentStorage()
+        getSetting(SETTING_KEYS.storageDiagnostics),
+        getSetting(SETTING_KEYS.recoveryFileState),
+        getSetting(SETTING_KEYS.recoveryFileHandle)
       ]);
 
       setFallbackNoticeEnabled(fallbackSetting?.value !== false);
       setDeviceIdentity(nextIdentity);
+      applyStorageDiagnostics(storedStorageDiagnostics?.value);
+      recoveryFileHandleRef.current = storedRecoveryFileHandle?.value || null;
+      setRecoveryFileState(normalizeRecoveryFileState(storedRecoveryFileState?.value));
       await refreshPairedDevices();
+      await refreshStorageDiagnostics();
+      await refreshRecoveryFilePermission();
       void triggerNearbySync("startup");
     } catch (error) {
       console.error("Settings load failed", error);
@@ -560,6 +730,64 @@ export default function App() {
       typeof updater === "function" ? updater(openTabsRef.current) : updater;
     openTabsRef.current = nextTabs;
     setOpenTabs(nextTabs);
+  }
+
+  function updateResolvedPaperTitle(paperId, nextTitle, { replaceableTitles = [] } = {}) {
+    const normalizedNextTitle = normalizePaperTitle(nextTitle, paperId);
+    if (!normalizedNextTitle) {
+      return;
+    }
+
+    updateOpenTabs((currentTabs) =>
+      currentTabs.map((tab) => {
+        if (tab.id !== paperId) {
+          return tab;
+        }
+
+        const currentTitle = tab.paper?.title || tab.title || tab.id;
+        if (
+          !shouldReplacePaperTitle(currentTitle, normalizedNextTitle, paperId, replaceableTitles)
+        ) {
+          return tab;
+        }
+
+        return {
+          ...tab,
+          title: normalizedNextTitle,
+          paper: tab.paper
+            ? {
+                ...tab.paper,
+                title: normalizedNextTitle
+              }
+            : tab.paper
+        };
+      })
+    );
+
+    setReader((current) => {
+      if (!current.paper || current.paper.id !== paperId) {
+        return current;
+      }
+
+      if (
+        !shouldReplacePaperTitle(
+          current.paper.title,
+          normalizedNextTitle,
+          paperId,
+          replaceableTitles
+        )
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        paper: {
+          ...current.paper,
+          title: normalizedNextTitle
+        }
+      };
+    });
   }
 
   function revokeTabAssets(tabKey) {
@@ -614,7 +842,7 @@ export default function App() {
   async function disableFallbackNotice() {
     setFallbackNoticeEnabled(false);
     try {
-      await setSetting("pdfFallbackNoticeEnabled", false);
+      await setSetting(SETTING_KEYS.pdfFallbackNoticeEnabled, false);
     } catch (error) {
       console.error("Failed to persist PDF fallback notice preference", error);
       showToast("Could not save the PDF fallback notice setting.");
@@ -644,11 +872,12 @@ export default function App() {
 
     setSaving(true);
     try {
-      await ensurePersistentStorage();
+      await refreshStorageDiagnostics();
       await savePaper(reader.paper, {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
+      await refreshStorageDiagnostics();
       const savedPaper = {
         ...reader.paper,
         mode: "saved"
@@ -705,6 +934,7 @@ export default function App() {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
+      await refreshStorageDiagnostics();
       closeTab(getPaperTabKey(paperId));
       showToast("Removed from library.");
       void triggerNearbySync("delete");
@@ -723,19 +953,120 @@ export default function App() {
     }
   }
 
-  async function handleImportLibrary(file) {
-    setImporting(true);
+  async function handleExportUrls() {
     try {
-      await ensurePersistentStorage();
+      const blob = await exportLibraryUrlManifest(APP_VERSION);
+      downloadBlob(blob, buildUrlManifestFilename());
+      showToast("Downloaded URL recovery file.");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  async function handleImportLibrary(file) {
+    setBackupImporting(true);
+    try {
+      await refreshStorageDiagnostics();
       await importLibraryBackup(file);
       await refreshLibrary();
+      await refreshStorageDiagnostics();
       setRouteVersion((value) => value + 1);
       showToast("Imported library backup.");
       void triggerNearbySync("import");
     } catch (error) {
       showToast(stringifyError(error));
     } finally {
-      setImporting(false);
+      setBackupImporting(false);
+    }
+  }
+
+  async function handleImportUrls(file) {
+    setUrlImporting(true);
+    setRestoreStatus(createDefaultRestoreStatus());
+
+    try {
+      await refreshStorageDiagnostics();
+      const manifest = await importLibraryUrlManifest(file);
+      const result = await restoreFromUrlManifest(manifest, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local",
+        concurrency: 2,
+        onProgress: (progress) => {
+          setRestoreStatus({
+            active: progress.completed < progress.total,
+            total: progress.total,
+            completed: progress.completed,
+            currentId: progress.currentId,
+            result: progress.result
+          });
+        }
+      });
+
+      await refreshLibrary();
+      await refreshStorageDiagnostics();
+      setRouteVersion((value) => value + 1);
+      setRestoreStatus({
+        active: false,
+        total: manifest.papers.length,
+        completed: manifest.papers.length,
+        currentId: "",
+        result
+      });
+
+      if (result.restoredIds.length) {
+        void triggerNearbySync("import", {
+          force: true
+        });
+      }
+
+      showToast(
+        `Restored ${result.restoredIds.length}, skipped ${result.skippedIds.length}, failed ${result.failed.length}.`
+      );
+    } catch (error) {
+      setRestoreStatus(createDefaultRestoreStatus());
+      showToast(stringifyError(error));
+    } finally {
+      setUrlImporting(false);
+    }
+  }
+
+  async function handleEnableRecoveryFile() {
+    if (!isRecoveryFileSupported()) {
+      showToast("Recovery files are not supported in this browser.");
+      return;
+    }
+
+    try {
+      const handle = await createRecoveryFileHandle();
+      const permission = handle.requestPermission
+        ? await handle.requestPermission({
+            mode: "readwrite"
+          })
+        : "granted";
+
+      if (permission !== "granted") {
+        throw new Error("Recovery file permission was not granted.");
+      }
+
+      recoveryFileHandleRef.current = handle;
+      recoveryFingerprintRef.current = "";
+      await setSetting(SETTING_KEYS.recoveryFileHandle, handle);
+      await persistRecoveryFileState({
+        supported: true,
+        enabled: true,
+        permission,
+        lastWrittenAt: recoveryFileState.lastWrittenAt,
+        filename: String(handle.name || recoveryFileState.filename || "").trim()
+      });
+      await mirrorRecoveryFile(library.papers, {
+        showSuccessToast: true
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to enable recovery file", error);
+      showToast(stringifyError(error));
     }
   }
 
@@ -1345,13 +1676,18 @@ export default function App() {
         <LibraryView
           papers={library.papers}
           loading={library.loading}
-          importing={importing}
+          backupImporting={backupImporting}
+          urlImporting={urlImporting}
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
+          storageDiagnostics={storageDiagnostics}
+          restoreStatus={restoreStatus}
+          recoveryFileState={recoveryFileState}
           deviceIdentity={deviceIdentity}
           pairedDevices={pairedDevices}
           nearbyState={nearbyState}
           pairRouteInviteId={route.pairInviteId}
+          onEnableRecoveryFile={handleEnableRecoveryFile}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
           onJoinInvite={handleJoinInvite}
@@ -1366,7 +1702,9 @@ export default function App() {
           onExportPaper={handleExportPaper}
           onDeletePaper={handleDeletePaper}
           onExportLibrary={handleExportLibrary}
+          onExportUrls={handleExportUrls}
           onImportFile={handleImportLibrary}
+          onImportUrlFile={handleImportUrls}
           formatPairSyncStatus={formatPairSyncStatus}
         />
       )}
@@ -1413,6 +1751,22 @@ function parseRoute() {
     pairInviteId,
     payload: null
   };
+}
+
+function shouldReplacePaperTitle(currentTitle, nextTitle, paperId, replaceableTitles = []) {
+  const normalizedCurrent = normalizePaperTitle(currentTitle, paperId);
+  const normalizedNext = normalizePaperTitle(nextTitle, paperId);
+  if (!normalizedNext || normalizedCurrent === normalizedNext) {
+    return false;
+  }
+
+  const replaceable = new Set(
+    replaceableTitles
+      .map((value) => normalizePaperTitle(value, paperId))
+      .filter(Boolean)
+  );
+
+  return !normalizedCurrent || normalizedCurrent === paperId || replaceable.has(normalizedCurrent);
 }
 
 function extractProtocolPairId(protocolValue) {
@@ -1477,7 +1831,7 @@ function getRouteTab(route) {
     key: getPaperTabKey(paperId),
     id: paperId,
     href: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-    title: route.payload.title || paperId
+    title: normalizePaperTitle(route.payload.title || "", paperId) || paperId
   };
 }
 

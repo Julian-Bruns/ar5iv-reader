@@ -4,11 +4,14 @@ import {
   buildArxivHtmlUrl,
   buildArxivPdfUrl
 } from "./arxiv";
+import { extractPaperMetadata, normalizePaperTitle } from "./sanitizePaper";
 
 export const RELAYS = [
   "https://corsproxy.io/?",
   "https://api.allorigins.win/raw?url="
 ];
+const FETCH_TIMEOUT_MS = 6500;
+const TITLE_FETCH_TIMEOUT_MS = 3500;
 
 export class RelayFetchError extends Error {
   constructor(targetUrl, attempts) {
@@ -23,6 +26,8 @@ export async function fetchPaperById(
   id,
   { sourceUrl = "", titleHint = "" } = {}
 ) {
+  const normalizedTitleHint = normalizePaperTitle(titleHint, id);
+
   try {
     const { body, relay, targetUrl } = await fetchPaperHtmlById(id);
 
@@ -32,15 +37,29 @@ export async function fetchPaperById(
       ar5ivUrl: targetUrl,
       html: body,
       relay,
-      titleHint,
+      titleHint: normalizedTitleHint,
       view: "html"
     };
   } catch (error) {
     return buildPdfFallbackPaper(id, {
       sourceUrl,
-      titleHint,
+      titleHint: normalizedTitleHint,
       reason: stringifyError(error)
     });
+  }
+}
+
+export async function fetchPaperTitleById(id, { fallbackTitle = "" } = {}) {
+  const normalizedFallback = normalizePaperTitle(fallbackTitle, id);
+
+  try {
+    const { body } = await fetchTextThroughRelays(buildArxivAbsUrl(id), {
+      timeoutMs: TITLE_FETCH_TIMEOUT_MS
+    });
+    const { title } = extractPaperMetadata(body, normalizedFallback || id);
+    return normalizePaperTitle(title, normalizedFallback || id);
+  } catch {
+    return normalizedFallback || id;
   }
 }
 
@@ -63,7 +82,9 @@ async function fetchPaperHtmlById(id) {
   try {
     return await Promise.any(
       targetUrls.map(async (targetUrl) => {
-        const result = await fetchTextThroughRelays(targetUrl);
+        const result = await fetchTextThroughRelays(targetUrl, {
+          timeoutMs: FETCH_TIMEOUT_MS
+        });
         assertLooksLikePaperHtml(result.body, targetUrl);
         return {
           ...result,
@@ -80,13 +101,17 @@ async function fetchPaperHtmlById(id) {
   }
 }
 
-export async function fetchTextThroughRelays(targetUrl) {
+export async function fetchTextThroughRelays(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   try {
-    const response = await fetch(targetUrl, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,*/*"
-      }
-    });
+    const response = await fetchWithTimeout(
+      targetUrl,
+      {
+        headers: {
+          accept: "text/html,application/xhtml+xml,*/*"
+        }
+      },
+      timeoutMs
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
@@ -103,11 +128,15 @@ export async function fetchTextThroughRelays(targetUrl) {
   }
 
   return fetchThroughRelays(targetUrl, async (requestUrl) => {
-    const response = await fetch(requestUrl, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,*/*"
-      }
-    });
+    const response = await fetchWithTimeout(
+      requestUrl,
+      {
+        headers: {
+          accept: "text/html,application/xhtml+xml,*/*"
+        }
+      },
+      timeoutMs
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
@@ -198,23 +227,32 @@ export async function fetchBlobWithFallback(targetUrl) {
 }
 
 async function fetchThroughRelays(targetUrl, reader) {
-  const attempts = [];
+  try {
+    return await Promise.any(
+      RELAYS.map(async (relay) => {
+        const requestUrl = `${relay}${encodeURIComponent(targetUrl)}`;
 
-  for (const relay of RELAYS) {
-    const requestUrl = `${relay}${encodeURIComponent(targetUrl)}`;
-
-    try {
-      const result = await reader(requestUrl);
-      return {
-        ...result,
-        relay
-      };
-    } catch (error) {
-      attempts.push({ relay, message: stringifyError(error) });
-    }
+        try {
+          const result = await reader(requestUrl);
+          return {
+            ...result,
+            relay
+          };
+        } catch (error) {
+          throw { relay, message: stringifyError(error) };
+        }
+      })
+    );
+  } catch (error) {
+    const attempts =
+      error instanceof AggregateError
+        ? error.errors.map((entry) => ({
+            relay: String(entry?.relay || "unknown"),
+            message: String(entry?.message || "Request failed")
+          }))
+        : [{ relay: "unknown", message: stringifyError(error) }];
+    throw new RelayFetchError(targetUrl, attempts);
   }
-
-  throw new RelayFetchError(targetUrl, attempts);
 }
 
 function buildRelayErrorMessage(targetUrl, attempts) {
@@ -230,4 +268,20 @@ function stringifyError(error) {
   }
 
   return String(error);
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }

@@ -8,6 +8,16 @@ const SETTING_STORE = "settings";
 const SNAPSHOT_SCHEMA_VERSION = 2;
 const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled"]);
 
+export const SETTING_KEYS = Object.freeze({
+  deviceIdentity: "deviceIdentity",
+  nearbySyncState: "nearbySyncState",
+  pairedDevices: "pairedDevices",
+  pdfFallbackNoticeEnabled: "pdfFallbackNoticeEnabled",
+  recoveryFileHandle: "recoveryFileHandle",
+  recoveryFileState: "recoveryFileState",
+  storageDiagnostics: "storageDiagnostics"
+});
+
 let databasePromise;
 
 export async function listPapers() {
