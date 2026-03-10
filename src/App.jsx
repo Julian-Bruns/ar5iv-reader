@@ -27,6 +27,7 @@ import {
 } from "./lib/fetchPaper";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
+import { resolveLaunchTarget } from "./lib/launchTarget";
 import {
   extractPaperMetadata,
   normalizePaperTitle,
@@ -205,21 +206,23 @@ export default function App() {
     }
 
     window.launchQueue.setConsumer((launchParams) => {
-      const targetUrl = parseLaunchTargetUrl(launchParams?.targetURL);
-      if (!targetUrl || targetUrl.origin !== window.location.origin) {
+      // Desktop bookmarklet relaunches depend on launchQueue when the PWA reuses an existing window.
+      const launchTarget = resolveLaunchTarget({
+        currentUrl: window.location.href,
+        targetUrl: launchParams?.targetURL,
+        origin: window.location.origin
+      });
+
+      if (launchTarget.type === "ignore") {
         return;
       }
 
-      const nextUrl = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
-      const currentUrl =
-        `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
-      if (nextUrl === currentUrl) {
+      if (launchTarget.type === "refresh") {
         setRouteVersion((value) => value + 1);
         return;
       }
 
-      window.history.pushState({}, "", nextUrl);
+      window.history.pushState({}, "", launchTarget.nextUrl);
       setRouteVersion((value) => value + 1);
     });
   }, []);
@@ -1876,22 +1879,6 @@ function clearPairQueryParam() {
   const nextSearch = url.searchParams.toString();
   const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
   window.history.replaceState(window.history.state, "", nextUrl);
-}
-
-function parseLaunchTargetUrl(targetUrl) {
-  if (!targetUrl) {
-    return null;
-  }
-
-  if (targetUrl instanceof URL) {
-    return targetUrl;
-  }
-
-  try {
-    return new URL(String(targetUrl), window.location.origin);
-  } catch {
-    return null;
-  }
 }
 
 function createDefaultStorageDiagnostics() {

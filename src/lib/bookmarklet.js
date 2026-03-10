@@ -11,15 +11,7 @@ export function buildBookmarkletHref(origin) {
     "const receiveUrl=new URL('/receive',origin);",
     "receiveUrl.searchParams.set('url',currentUrl);",
     "receiveUrl.searchParams.set('title',document.title||'');",
-    "const root=document.body||document.documentElement;",
-    "if(!root){window.open(receiveUrl.toString(),'_blank','noopener,noreferrer');return;}",
-    "const link=document.createElement('a');",
-    "link.href=receiveUrl.toString();",
-    "link.target='_blank';",
-    "link.rel='noopener noreferrer';",
-    "root.appendChild(link);",
-    "link.click();",
-    "link.remove();",
+    "window.location.assign(receiveUrl.toString());",
     "})();"
   ].join("");
 
