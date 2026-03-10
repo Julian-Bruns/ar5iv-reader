@@ -22,8 +22,8 @@ import {
 } from "./lib/exportImport";
 import {
   buildPdfFallbackPaper,
+  fetchPaperAccessInfoById,
   fetchPaperById,
-  fetchPaperTitleById
 } from "./lib/fetchPaper";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
@@ -340,28 +340,31 @@ export default function App() {
           );
         }
 
-        const normalizedIncomingTitle = normalizePaperTitle(route.payload.title || "", id) || id;
-        void fetchPaperTitleById(id, {
-          fallbackTitle: normalizedIncomingTitle
-        }).then((resolvedTitle) => {
-          if (cancelled || !resolvedTitle) {
-            return;
-          }
-
-          updateResolvedPaperTitle(id, resolvedTitle, {
-            replaceableTitles: [normalizedIncomingTitle, id]
-          });
-        });
-
         const cachedTab = openTabsRef.current.find((tab) => tab.key === getPaperTabKey(id));
         if (cachedTab?.paper) {
           setReader(getReaderStateFromTab(cachedTab));
           return;
         }
 
+        const normalizedIncomingTitle = normalizePaperTitle(route.payload.title || "", id) || id;
+        const accessInfoPromise = fetchPaperAccessInfoById(id, {
+          fallbackTitle: normalizedIncomingTitle
+        });
+        void accessInfoPromise.then((accessInfo) => {
+          if (cancelled || !accessInfo?.title) {
+            return;
+          }
+
+          updateResolvedPaperTitle(id, accessInfo.title, {
+            replaceableTitles: [normalizedIncomingTitle, id]
+          });
+        });
+        const accessInfo = await accessInfoPromise;
+
         const sessionPaper = await fetchPaperById(id, {
           sourceUrl: route.payload.url || route.payload.text || "",
-          titleHint: normalizedIncomingTitle
+          titleHint: accessInfo?.title || normalizedIncomingTitle,
+          accessInfo
         });
 
         if (cancelled) {
@@ -621,11 +624,12 @@ export default function App() {
     });
   }
 
-  async function refreshRecoveryFilePermission() {
+  async function refreshRecoveryFilePermission(currentValue = recoveryFileState) {
     const handle = recoveryFileHandleRef.current;
+    const currentState = normalizeRecoveryFileState(currentValue);
     if (!handle) {
       return persistRecoveryFileState({
-        ...recoveryFileState,
+        ...currentState,
         supported: isRecoveryFileSupported(),
         enabled: false,
         permission: "unknown"
@@ -634,11 +638,11 @@ export default function App() {
 
     const permission = await getRecoveryFilePermission(handle);
     return persistRecoveryFileState({
-      ...recoveryFileState,
+      ...currentState,
       supported: isRecoveryFileSupported(),
-      enabled: permission === "granted" && normalizeRecoveryFileState(recoveryFileState).enabled,
+      enabled: permission === "granted" && currentState.enabled,
       permission,
-      filename: String(handle.name || recoveryFileState.filename || "").trim()
+      filename: String(handle.name || currentState.filename || "").trim()
     });
   }
 
@@ -710,10 +714,11 @@ export default function App() {
       setDeviceIdentity(nextIdentity);
       applyStorageDiagnostics(storedStorageDiagnostics?.value);
       recoveryFileHandleRef.current = storedRecoveryFileHandle?.value || null;
-      setRecoveryFileState(normalizeRecoveryFileState(storedRecoveryFileState?.value));
+      const nextRecoveryFileState = normalizeRecoveryFileState(storedRecoveryFileState?.value);
+      setRecoveryFileState(nextRecoveryFileState);
       await refreshPairedDevices();
       await refreshStorageDiagnostics();
-      await refreshRecoveryFilePermission();
+      await refreshRecoveryFilePermission(nextRecoveryFileState);
       void triggerNearbySync("startup");
     } catch (error) {
       console.error("Settings load failed", error);
@@ -1871,6 +1876,65 @@ function clearPairQueryParam() {
   const nextSearch = url.searchParams.toString();
   const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
   window.history.replaceState(window.history.state, "", nextUrl);
+}
+
+function createDefaultStorageDiagnostics() {
+  return {
+    supported: false,
+    persisted: false,
+    quota: 0,
+    usage: 0
+  };
+}
+
+function normalizeStorageDiagnostics(value) {
+  return {
+    supported: Boolean(value?.supported),
+    persisted: Boolean(value?.persisted),
+    quota: Number(value?.quota || 0),
+    usage: Number(value?.usage || 0)
+  };
+}
+
+function createDefaultRestoreStatus() {
+  return {
+    active: false,
+    total: 0,
+    completed: 0,
+    currentId: "",
+    result: null
+  };
+}
+
+function createDefaultRecoveryFileState() {
+  return {
+    enabled: false,
+    supported: isRecoveryFileSupported(),
+    permission: "unknown",
+    lastWrittenAt: "",
+    filename: ""
+  };
+}
+
+function normalizeRecoveryFileState(value) {
+  return {
+    enabled: Boolean(value?.enabled),
+    supported:
+      typeof value?.supported === "boolean" ? value.supported : isRecoveryFileSupported(),
+    permission: ["granted", "prompt", "denied"].includes(value?.permission)
+      ? value.permission
+      : "unknown",
+    lastWrittenAt: String(value?.lastWrittenAt || ""),
+    filename: String(value?.filename || "").trim()
+  };
+}
+
+function isPermissionError(error) {
+  return (
+    error?.name === "NotAllowedError" ||
+    error?.name === "SecurityError" ||
+    /permission/i.test(stringifyError(error))
+  );
 }
 
 function stringifyError(error) {

@@ -161,6 +161,9 @@ Before sending the link to friends, test:
 
 - `Export Backup` downloads the full offline library, including cached assets.
 - `Import Backup` merges that backup into the current library using per-paper revision metadata.
+- `Export URLs` downloads a lightweight recovery manifest of saved paper URLs and metadata.
+- `Import URLs` refetches those papers and rebuilds the local library without requiring an account or server snapshot.
+- `Keep Recovery File Updated` is a Chromium-only option that mirrors the URL manifest to a user-chosen JSON file outside browser-managed storage.
 - `Export HTML` still downloads the raw saved HTML for a single paper.
 
 ## Routes
@@ -175,5 +178,7 @@ Before sending the link to friends, test:
 - Live paper fetches prefer `arxiv.org/html/<id>` and fall back to `ar5iv.labs.arxiv.org/html/<id>`, both through a configurable relay list when the browser cannot fetch them directly.
 - If neither HTML path yields a usable rendered paper, the reader opens the arXiv PDF instead and disables math copy for that session.
 - The service worker caches the app shell. Saved paper HTML, figure blobs, pairing metadata, and revision metadata are stored in IndexedDB.
+- Storage persistence is requested through the Storage API, but browser-managed data can still be cleared by the user or browser policies.
+- OPFS is not used for library persistence because it is still origin-scoped like IndexedDB and Cache Storage.
 - `public/_redirects` is included so Cloudflare Pages serves `/receive` as SPA content instead of returning a direct-route 404.
 - Nearby sync is same-network-first and does not use TURN in v1, so it is not guaranteed to work across different networks or restrictive NAT setups.

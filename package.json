@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "cf:pages:build": "bun install --frozen-lockfile && vite build",
     "cf:worker:dev": "cd worker && bunx wrangler dev",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@preact/preset-vite": "^2.10.2",
     "vite": "^7.1.11",
+    "vitest": "^3.2.4",
     "wrangler": "^4.6.0"
   }
 }

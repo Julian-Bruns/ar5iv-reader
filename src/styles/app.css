@@ -464,6 +464,29 @@ input {
   gap: 1rem;
 }
 
+.status-card {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.status-line {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.78);
+}
+
+.status-line--good {
+  color: #2d6a4f;
+}
+
+.status-line--warn {
+  color: #8a3b12;
+}
+
+.restore-summary {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .setup-header {
   display: flex;
   flex-wrap: wrap;

@@ -11,7 +11,8 @@ export const RELAYS = [
   "https://api.allorigins.win/raw?url="
 ];
 const FETCH_TIMEOUT_MS = 6500;
-const TITLE_FETCH_TIMEOUT_MS = 3500;
+const ABS_INFO_TIMEOUT_MS = 3500;
+const AR5IV_PROBE_TIMEOUT_MS = 1000;
 
 export class RelayFetchError extends Error {
   constructor(targetUrl, attempts) {
@@ -24,42 +25,70 @@ export class RelayFetchError extends Error {
 
 export async function fetchPaperById(
   id,
-  { sourceUrl = "", titleHint = "" } = {}
+  { sourceUrl = "", titleHint = "", accessInfo = null } = {}
 ) {
   const normalizedTitleHint = normalizePaperTitle(titleHint, id);
+  const resolvedAccessInfo =
+    normalizeAccessInfo(accessInfo, normalizedTitleHint, id) ||
+    (await fetchPaperAccessInfoById(id, {
+      fallbackTitle: normalizedTitleHint
+    }));
+  const resolvedTitleHint = resolvedAccessInfo.title || normalizedTitleHint;
 
   try {
-    const { body, relay, targetUrl } = await fetchPaperHtmlById(id);
+    let fetchedPaper;
+
+    if (resolvedAccessInfo.hasArxivHtml === true) {
+      try {
+        fetchedPaper = await fetchArxivHtmlById(id);
+      } catch (primaryError) {
+        try {
+          fetchedPaper = await fetchAr5ivHtmlById(id, {
+            timeoutMs: AR5IV_PROBE_TIMEOUT_MS
+          });
+        } catch {
+          throw primaryError;
+        }
+      }
+    } else if (resolvedAccessInfo.hasArxivHtml === false) {
+      fetchedPaper = await fetchAr5ivHtmlById(id, {
+        timeoutMs: AR5IV_PROBE_TIMEOUT_MS
+      });
+    } else {
+      fetchedPaper = await fetchPaperHtmlById(id);
+    }
 
     return {
       id,
       sourceUrl: sourceUrl || buildArxivAbsUrl(id),
-      ar5ivUrl: targetUrl,
-      html: body,
-      relay,
-      titleHint: normalizedTitleHint,
+      ar5ivUrl: fetchedPaper.targetUrl,
+      html: fetchedPaper.body,
+      relay: fetchedPaper.relay,
+      titleHint: resolvedTitleHint,
       view: "html"
     };
   } catch (error) {
     return buildPdfFallbackPaper(id, {
       sourceUrl,
-      titleHint: normalizedTitleHint,
+      titleHint: resolvedTitleHint,
       reason: stringifyError(error)
     });
   }
 }
 
-export async function fetchPaperTitleById(id, { fallbackTitle = "" } = {}) {
+export async function fetchPaperAccessInfoById(id, { fallbackTitle = "" } = {}) {
   const normalizedFallback = normalizePaperTitle(fallbackTitle, id);
 
   try {
     const { body } = await fetchTextThroughRelays(buildArxivAbsUrl(id), {
-      timeoutMs: TITLE_FETCH_TIMEOUT_MS
+      timeoutMs: ABS_INFO_TIMEOUT_MS
     });
-    const { title } = extractPaperMetadata(body, normalizedFallback || id);
-    return normalizePaperTitle(title, normalizedFallback || id);
+    return extractAccessInfoFromAbsHtml(body, normalizedFallback || id);
   } catch {
-    return normalizedFallback || id;
+    return {
+      title: normalizedFallback || id,
+      hasArxivHtml: null
+    };
   }
 }
 
@@ -81,16 +110,7 @@ async function fetchPaperHtmlById(id) {
   const targetUrls = [buildArxivHtmlUrl(id), buildAr5ivUrl(id)];
   try {
     return await Promise.any(
-      targetUrls.map(async (targetUrl) => {
-        const result = await fetchTextThroughRelays(targetUrl, {
-          timeoutMs: FETCH_TIMEOUT_MS
-        });
-        assertLooksLikePaperHtml(result.body, targetUrl);
-        return {
-          ...result,
-          targetUrl
-        };
-      })
+      targetUrls.map((targetUrl) => fetchPaperHtmlFromUrl(targetUrl, { timeoutMs: FETCH_TIMEOUT_MS }))
     );
   } catch (error) {
     const summary =
@@ -99,6 +119,29 @@ async function fetchPaperHtmlById(id) {
         : stringifyError(error);
     throw new Error(`Unable to fetch rendered paper HTML for ${id}. ${summary}`);
   }
+}
+
+async function fetchArxivHtmlById(id) {
+  return fetchPaperHtmlFromUrl(buildArxivHtmlUrl(id), {
+    timeoutMs: FETCH_TIMEOUT_MS
+  });
+}
+
+async function fetchAr5ivHtmlById(id, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  return fetchPaperHtmlFromUrl(buildAr5ivUrl(id), {
+    timeoutMs
+  });
+}
+
+async function fetchPaperHtmlFromUrl(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  const result = await fetchTextThroughRelays(targetUrl, {
+    timeoutMs
+  });
+  assertLooksLikePaperHtml(result.body, targetUrl);
+  return {
+    ...result,
+    targetUrl
+  };
 }
 
 export async function fetchTextThroughRelays(targetUrl, { timeoutMs = FETCH_TIMEOUT_MS } = {}) {
@@ -268,6 +311,36 @@ function stringifyError(error) {
   }
 
   return String(error);
+}
+
+function extractAccessInfoFromAbsHtml(rawHtml, fallbackTitle) {
+  const documentNode = new DOMParser().parseFromString(rawHtml, "text/html");
+  const { title } = extractPaperMetadata(rawHtml, fallbackTitle);
+  const hasArxivHtml = Boolean(
+    documentNode.querySelector(
+      "#latexml-download-link, a[href^=\"/html/\"], a[href*=\"arxiv.org/html/\"]"
+    )
+  );
+
+  return {
+    title: normalizePaperTitle(title, fallbackTitle),
+    hasArxivHtml
+  };
+}
+
+function normalizeAccessInfo(accessInfo, fallbackTitle, id) {
+  if (!accessInfo || typeof accessInfo !== "object") {
+    return null;
+  }
+
+  const title = normalizePaperTitle(accessInfo.title, fallbackTitle || id) || fallbackTitle || id;
+  const hasArxivHtml =
+    typeof accessInfo.hasArxivHtml === "boolean" ? accessInfo.hasArxivHtml : null;
+
+  return {
+    title,
+    hasArxivHtml
+  };
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {

@@ -6,13 +6,18 @@ import SyncPanel from "./SyncPanel";
 export default function LibraryView({
   papers,
   loading,
-  importing,
+  backupImporting,
+  urlImporting,
   receiveMessage,
   defaultInput,
+  storageDiagnostics,
+  restoreStatus,
+  recoveryFileState,
   deviceIdentity,
   pairedDevices,
   nearbyState,
   pairRouteInviteId,
+  onEnableRecoveryFile,
   onCreateInvite,
   onCloseInvite,
   onJoinInvite,
@@ -27,7 +32,9 @@ export default function LibraryView({
   onExportPaper,
   onDeletePaper,
   onExportLibrary,
+  onExportUrls,
   onImportFile,
+  onImportUrlFile,
   formatPairSyncStatus
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
@@ -60,7 +67,7 @@ export default function LibraryView({
             Export Backup
           </button>
           <label className="ghost-button upload-button">
-            {importing ? "Importing…" : "Import Backup"}
+            {backupImporting ? "Importing…" : "Import Backup"}
             <input
               type="file"
               accept="application/json"
@@ -73,6 +80,28 @@ export default function LibraryView({
               }}
             />
           </label>
+          <button className="ghost-button" type="button" onClick={onExportUrls}>
+            Export URLs
+          </button>
+          <label className="ghost-button upload-button">
+            {urlImporting ? "Restoring…" : "Import URLs"}
+            <input
+              type="file"
+              accept="application/json"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) {
+                  onImportUrlFile(file);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+          {recoveryFileState.supported ? (
+            <button className="ghost-button" type="button" onClick={onEnableRecoveryFile}>
+              {recoveryFileState.enabled ? "Update Recovery File Target" : "Keep Recovery File Updated"}
+            </button>
+          ) : null}
           <button
             className="ghost-button"
             type="button"
@@ -89,6 +118,19 @@ export default function LibraryView({
         onClose={() => setShowBookmarkSetup(false)}
       />
 
+      <section className="card status-card">
+        <div className="section-heading">
+          <h2>Local Storage</h2>
+          <p>{storageDiagnostics.persisted ? "Storage protected" : "Browser may evict local data"}</p>
+        </div>
+        <p className={`status-line ${storageDiagnostics.persisted ? "status-line--good" : "status-line--warn"}`}>
+          {formatStorageStatus(storageDiagnostics)}
+        </p>
+        <p className="status-line">
+          {formatRecoveryFileStatus(recoveryFileState)}
+        </p>
+      </section>
+
       <SyncPanel
         deviceIdentity={deviceIdentity}
         pairedDevices={pairedDevices}
@@ -104,6 +146,38 @@ export default function LibraryView({
         onSyncNow={onSyncNow}
         formatPairSyncStatus={formatPairSyncStatus}
       />
+
+      {restoreStatus.active || restoreStatus.result ? (
+        <section className="card status-card">
+          <div className="section-heading">
+            <h2>URL Restore</h2>
+            <p>
+              {restoreStatus.active
+                ? `Restoring ${restoreStatus.completed} of ${restoreStatus.total}`
+                : "Latest restore summary"}
+            </p>
+          </div>
+          {restoreStatus.active ? (
+            <p className="status-line">
+              {restoreStatus.currentId
+                ? `Fetching ${restoreStatus.currentId}...`
+                : "Preparing restore job..."}
+            </p>
+          ) : null}
+          {restoreStatus.result ? (
+            <div className="restore-summary">
+              <p className="status-line">
+                Restored {restoreStatus.result.restoredIds.length}, skipped {restoreStatus.result.skippedIds.length}, failed {restoreStatus.result.failed.length}.
+              </p>
+              {restoreStatus.result.failed.length ? (
+                <p className="status-line status-line--warn">
+                  Failed: {restoreStatus.result.failed.map((entry) => `${entry.id} (${entry.reason})`).join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="card form-card">
         <div className="section-heading">
@@ -207,4 +281,49 @@ export default function LibraryView({
       </section>
     </div>
   );
+}
+
+function formatStorageStatus(storageDiagnostics) {
+  if (!storageDiagnostics?.supported) {
+    return "Persistent storage is not supported in this browser.";
+  }
+
+  const usage = formatBytes(storageDiagnostics.usage);
+  const quota = formatBytes(storageDiagnostics.quota);
+  return storageDiagnostics.persisted
+    ? `Browser persistence is granted. Using ${usage} of ${quota}.`
+    : `Persistence is not guaranteed. Using ${usage} of ${quota}.`;
+}
+
+function formatRecoveryFileStatus(recoveryFileState) {
+  if (!recoveryFileState?.supported) {
+    return "Recovery file mirroring is unavailable in this browser.";
+  }
+
+  if (!recoveryFileState.enabled) {
+    return "Recovery file mirroring is off.";
+  }
+
+  const lastWrittenAt = recoveryFileState.lastWrittenAt
+    ? new Date(recoveryFileState.lastWrittenAt).toLocaleString()
+    : "not written yet";
+  return `Recovery file: ${recoveryFileState.filename || "selected file"}; last updated ${lastWrittenAt}.`;
+}
+
+function formatBytes(value) {
+  const size = Number(value || 0);
+  if (!size) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let unitIndex = 0;
+  let nextSize = size;
+  while (nextSize >= 1024 && unitIndex < units.length - 1) {
+    nextSize /= 1024;
+    unitIndex += 1;
+  }
+
+  const rounded = nextSize >= 10 || unitIndex === 0 ? Math.round(nextSize) : nextSize.toFixed(1);
+  return `${rounded} ${units[unitIndex]}`;
 }
