@@ -205,8 +205,8 @@ export default function App() {
     }
 
     window.launchQueue.setConsumer((launchParams) => {
-      const targetUrl = launchParams?.targetURL;
-      if (!(targetUrl instanceof URL) || targetUrl.origin !== window.location.origin) {
+      const targetUrl = parseLaunchTargetUrl(launchParams?.targetURL);
+      if (!targetUrl || targetUrl.origin !== window.location.origin) {
         return;
       }
 
@@ -1876,6 +1876,22 @@ function clearPairQueryParam() {
   const nextSearch = url.searchParams.toString();
   const nextUrl = `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`;
   window.history.replaceState(window.history.state, "", nextUrl);
+}
+
+function parseLaunchTargetUrl(targetUrl) {
+  if (!targetUrl) {
+    return null;
+  }
+
+  if (targetUrl instanceof URL) {
+    return targetUrl;
+  }
+
+  try {
+    return new URL(String(targetUrl), window.location.origin);
+  } catch {
+    return null;
+  }
 }
 
 function createDefaultStorageDiagnostics() {
