@@ -44,7 +44,7 @@ export function buildArxivHtmlUrl(id) {
 }
 
 export function buildArxivPdfUrl(id) {
-  return `https://arxiv.org/pdf/${id}#zoom=page-width`;
+  return `https://arxiv.org/pdf/${id}#view=FitH`;
 }
 
 export function buildArxivAbsUrl(id) {
