@@ -13,12 +13,13 @@ import {
   SETTING_KEYS
 } from "./lib/db";
 import {
+  buildBackupFilename,
+  buildBackupFingerprint,
+  createLibraryBackup,
   downloadBlob,
   exportLibraryBackup,
-  exportLibraryUrlManifest,
   exportPaperHtml,
-  importLibraryBackup,
-  importLibraryUrlManifest
+  importLibraryBackup
 } from "./lib/exportImport";
 import {
   buildPdfFallbackPaper,
@@ -49,17 +50,11 @@ import { runLibrarySyncSession, runPairSession } from "./lib/nearby/syncProtocol
 import { NearbyWebRtcSession } from "./lib/nearby/webrtcSession";
 import { ensurePersistentStorage } from "./lib/persistence";
 import {
-  createRecoveryFileHandle,
-  getRecoveryFilePermission,
-  isRecoveryFileSupported,
-  writeRecoveryFile
+  createBackupFileHandle,
+  getBackupFilePermission,
+  isBackupFileSupported,
+  writeBackupFile
 } from "./lib/recoveryFile";
-import {
-  buildUrlManifest,
-  buildUrlManifestFilename,
-  buildUrlManifestFingerprint,
-  restoreFromUrlManifest
-} from "./lib/urlManifest";
 import {
   getNextTabAfterClose,
   reorderReaderTabs,
@@ -105,13 +100,11 @@ export default function App() {
   const [openTabs, setOpenTabs] = useState([]);
   const [toast, setToast] = useState("");
   const [backupImporting, setBackupImporting] = useState(false);
-  const [urlImporting, setUrlImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [libraryInput, setLibraryInput] = useState("");
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
-  const [storageDiagnostics, setStorageDiagnostics] = useState(createDefaultStorageDiagnostics());
-  const [restoreStatus, setRestoreStatus] = useState(createDefaultRestoreStatus());
-  const [recoveryFileState, setRecoveryFileState] = useState(createDefaultRecoveryFileState());
+  const [openFromArxivHelpDismissed, setOpenFromArxivHelpDismissed] = useState(false);
+  const [backupState, setBackupState] = useState(createDefaultBackupState());
   const [deviceIdentity, setDeviceIdentity] = useState(null);
   const [pairedDevices, setPairedDevices] = useState([]);
   const [nearbyState, setNearbyState] = useState({
@@ -129,8 +122,8 @@ export default function App() {
   const sessionsRef = useRef(new Map());
   const deviceIdentityRef = useRef(null);
   const pairedDevicesRef = useRef([]);
-  const recoveryFileHandleRef = useRef(null);
-  const recoveryFingerprintRef = useRef("");
+  const backupFileHandleRef = useRef(null);
+  const backupFingerprintRef = useRef("");
   const onlinePeerIdsRef = useRef(new Set());
   const activeInviteRef = useRef("");
   const pairJoinAttemptRef = useRef("");
@@ -144,7 +137,7 @@ export default function App() {
   const route = parseRoute();
   const activeRouteTab = getRouteTab(route);
   const activeTabKey = activeRouteTab?.key || "";
-  const libraryFingerprint = buildUrlManifestFingerprint(library.papers);
+  const libraryFingerprint = buildBackupFingerprint(library.papers);
   const pairedPeerIds = pairedDevices
     .map((record) => record.peerDeviceId)
     .filter(Boolean)
@@ -175,9 +168,6 @@ export default function App() {
     void loadSettings();
 
     const syncRoute = () => setRouteVersion((value) => value + 1);
-    const handleInstalled = () => {
-      void refreshStorageDiagnostics();
-    };
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
         relayClientRef.current?.start();
@@ -186,12 +176,10 @@ export default function App() {
     };
 
     window.addEventListener("popstate", syncRoute);
-    window.addEventListener("appinstalled", handleInstalled);
     document.addEventListener("visibilitychange", handleVisible);
 
     return () => {
       window.removeEventListener("popstate", syncRoute);
-      window.removeEventListener("appinstalled", handleInstalled);
       document.removeEventListener("visibilitychange", handleVisible);
       for (const revoke of tabAssetRevokersRef.current.values()) {
         revoke();
@@ -244,15 +232,15 @@ export default function App() {
   useEffect(() => {
     if (
       library.loading ||
-      !recoveryFileState.enabled ||
-      !recoveryFileHandleRef.current ||
-      libraryFingerprint === recoveryFingerprintRef.current
+      !backupState.enabled ||
+      !backupFileHandleRef.current ||
+      libraryFingerprint === backupFingerprintRef.current
     ) {
       return;
     }
 
-    void mirrorRecoveryFile(library.papers);
-  }, [library.loading, libraryFingerprint, recoveryFileState.enabled]);
+    void mirrorBackupFile(library.papers);
+  }, [backupState.enabled, library.loading, libraryFingerprint]);
 
   useEffect(() => {
     let cancelled = false;
@@ -601,97 +589,104 @@ export default function App() {
     setLibrary({ loading: false, papers });
   }
 
-  function applyStorageDiagnostics(value) {
-    setStorageDiagnostics(normalizeStorageDiagnostics(value));
-  }
-
-  async function refreshStorageDiagnostics() {
-    const diagnostics = normalizeStorageDiagnostics(await ensurePersistentStorage());
-    setStorageDiagnostics(diagnostics);
-    await setSetting(SETTING_KEYS.storageDiagnostics, diagnostics);
-    return diagnostics;
-  }
-
-  async function persistRecoveryFileState(value) {
-    const normalized = normalizeRecoveryFileState(value);
-    setRecoveryFileState(normalized);
-    await setSetting(SETTING_KEYS.recoveryFileState, normalized);
+  async function persistBackupState(value) {
+    const normalized = normalizeBackupState(value);
+    setBackupState(normalized);
+    await setSetting(SETTING_KEYS.backupState, normalized);
     return normalized;
   }
 
-  async function clearRecoveryFile(reason = "") {
-    recoveryFileHandleRef.current = null;
-    recoveryFingerprintRef.current = "";
-    await setSetting(SETTING_KEYS.recoveryFileHandle, null);
-    await persistRecoveryFileState({
-      supported: isRecoveryFileSupported(),
+  async function dismissOpenFromArxivHelp() {
+    setOpenFromArxivHelpDismissed(true);
+    try {
+      window.localStorage?.setItem("openFromArxivHelpDismissed", "1");
+    } catch {
+      // Ignore localStorage write failures and fall back to IndexedDB-backed settings.
+    }
+    await setSetting(SETTING_KEYS.openFromArxivHelpDismissed, true);
+  }
+
+  async function clearBackupFile(reason = "") {
+    backupFileHandleRef.current = null;
+    backupFingerprintRef.current = "";
+    try {
+      await setSetting(SETTING_KEYS.backupFileHandle, null);
+    } catch (error) {
+      console.warn("Failed to clear persisted backup file handle", error);
+    }
+    await persistBackupState({
+      supported: isBackupFileSupported(),
       enabled: false,
       permission: reason || "unknown",
       lastWrittenAt: "",
-      filename: ""
+      filename: "",
+      lastMirroredFingerprint: "",
+      lastMirroredPaperIds: []
     });
   }
 
-  async function refreshRecoveryFilePermission(currentValue = recoveryFileState) {
-    const handle = recoveryFileHandleRef.current;
-    const currentState = normalizeRecoveryFileState(currentValue);
+  async function refreshBackupPermission(currentValue = backupState) {
+    const handle = backupFileHandleRef.current;
+    const currentState = normalizeBackupState(currentValue);
     if (!handle) {
-      return persistRecoveryFileState({
+      return persistBackupState({
         ...currentState,
-        supported: isRecoveryFileSupported(),
+        supported: isBackupFileSupported(),
         enabled: false,
         permission: "unknown"
       });
     }
 
-    const permission = await getRecoveryFilePermission(handle);
-    return persistRecoveryFileState({
+    const permission = await getBackupFilePermission(handle);
+    return persistBackupState({
       ...currentState,
-      supported: isRecoveryFileSupported(),
+      supported: isBackupFileSupported(),
       enabled: permission === "granted" && currentState.enabled,
       permission,
       filename: String(handle.name || currentState.filename || "").trim()
     });
   }
 
-  async function mirrorRecoveryFile(papers, { showSuccessToast = false } = {}) {
-    const handle = recoveryFileHandleRef.current;
+  async function mirrorBackupFile(papers, { showSuccessToast = false } = {}) {
+    const handle = backupFileHandleRef.current;
     if (!handle) {
       return false;
     }
 
-    const permission = await getRecoveryFilePermission(handle);
+    const permission = await getBackupFilePermission(handle);
     if (permission !== "granted") {
-      await clearRecoveryFile(permission);
-      showToast("Recovery file access was lost. Re-enable it to keep backups updated.");
+      await clearBackupFile(permission);
+      showToast("Backup file access was lost. Choose it again to keep it updated.");
       return false;
     }
 
     try {
-      const manifest = buildUrlManifest(papers, APP_VERSION);
-      const nextFingerprint = buildUrlManifestFingerprint(papers);
-      const writeResult = await writeRecoveryFile(handle, manifest);
-      recoveryFingerprintRef.current = nextFingerprint;
-      await persistRecoveryFileState({
-        supported: isRecoveryFileSupported(),
+      const { fingerprint, payload } = await createLibraryBackup(APP_VERSION);
+      const writeResult = await writeBackupFile(handle, payload);
+      backupFingerprintRef.current = fingerprint;
+      await persistBackupState({
+        ...backupState,
+        supported: isBackupFileSupported(),
         enabled: true,
         permission,
         lastWrittenAt: writeResult.lastWrittenAt,
-        filename: writeResult.filename
+        filename: writeResult.filename,
+        lastMirroredFingerprint: fingerprint,
+        lastMirroredPaperIds: papers.map((paper) => paper.id)
       });
       if (showSuccessToast) {
-        showToast("Recovery file will stay updated on this device.");
+        showToast("This backup file will stay updated on this device.");
       }
       return true;
     } catch (error) {
-      console.error("Failed to mirror recovery file", error);
+      console.error("Failed to mirror backup file", stringifyError(error));
       if (isPermissionError(error)) {
-        await clearRecoveryFile("denied");
-        showToast("Recovery file access was lost. Re-enable it to keep backups updated.");
+        await clearBackupFile("denied");
+        showToast("Backup file access was lost. Choose it again to keep it updated.");
         return false;
       }
 
-      showToast("Recovery file update failed.");
+      showToast("Backup file update failed.");
       return false;
     }
   }
@@ -705,28 +700,42 @@ export default function App() {
   async function loadSettings() {
     try {
       const [
+        helpDismissedSetting,
         fallbackSetting,
         nextIdentity,
-        storedStorageDiagnostics,
+        storedBackupState,
+        storedBackupFileHandle,
         storedRecoveryFileState,
         storedRecoveryFileHandle
       ] = await Promise.all([
+        getSetting(SETTING_KEYS.openFromArxivHelpDismissed),
         getSetting(SETTING_KEYS.pdfFallbackNoticeEnabled),
         getOrCreateDeviceIdentity(),
-        getSetting(SETTING_KEYS.storageDiagnostics),
+        getSetting(SETTING_KEYS.backupState),
+        getSetting(SETTING_KEYS.backupFileHandle),
         getSetting(SETTING_KEYS.recoveryFileState),
         getSetting(SETTING_KEYS.recoveryFileHandle)
       ]);
 
+      const locallyDismissed = readOpenFromArxivHelpDismissedFlag();
+      setOpenFromArxivHelpDismissed(locallyDismissed || helpDismissedSetting?.value === true);
       setFallbackNoticeEnabled(fallbackSetting?.value !== false);
       setDeviceIdentity(nextIdentity);
-      applyStorageDiagnostics(storedStorageDiagnostics?.value);
-      recoveryFileHandleRef.current = storedRecoveryFileHandle?.value || null;
-      const nextRecoveryFileState = normalizeRecoveryFileState(storedRecoveryFileState?.value);
-      setRecoveryFileState(nextRecoveryFileState);
+      backupFileHandleRef.current = storedBackupFileHandle?.value || storedRecoveryFileHandle?.value || null;
+      const nextBackupState = normalizeBackupState(
+        storedBackupState?.value || migrateLegacyRecoveryState(storedRecoveryFileState?.value)
+      );
+      backupFingerprintRef.current = nextBackupState.lastMirroredFingerprint;
+      setBackupState(nextBackupState);
+      if (!storedBackupState && storedRecoveryFileState?.value) {
+        await setSetting(SETTING_KEYS.backupState, nextBackupState);
+      }
+      if (!storedBackupFileHandle && storedRecoveryFileHandle?.value) {
+        await setSetting(SETTING_KEYS.backupFileHandle, storedRecoveryFileHandle.value);
+      }
       await refreshPairedDevices();
-      await refreshStorageDiagnostics();
-      await refreshRecoveryFilePermission(nextRecoveryFileState);
+      void ensurePersistentStorage();
+      await refreshBackupPermission(nextBackupState);
       void triggerNearbySync("startup");
     } catch (error) {
       console.error("Settings load failed", error);
@@ -890,12 +899,11 @@ export default function App() {
 
     setSaving(true);
     try {
-      await refreshStorageDiagnostics();
+      await ensurePersistentStorage();
       await savePaper(reader.paper, {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
-      await refreshStorageDiagnostics();
       const savedPaper = {
         ...reader.paper,
         mode: "saved"
@@ -952,7 +960,6 @@ export default function App() {
         deviceId: deviceIdentityRef.current?.deviceId || "local"
       });
       await refreshLibrary();
-      await refreshStorageDiagnostics();
       closeTab(getPaperTabKey(paperId));
       showToast("Removed from library.");
       void triggerNearbySync("delete");
@@ -963,19 +970,9 @@ export default function App() {
 
   async function handleExportLibrary() {
     try {
-      const blob = await exportLibraryBackup();
-      downloadBlob(blob, `ar5iv-reader-backup-${new Date().toISOString().slice(0, 10)}.json`);
-      showToast("Downloaded full library backup.");
-    } catch (error) {
-      showToast(stringifyError(error));
-    }
-  }
-
-  async function handleExportUrls() {
-    try {
-      const blob = await exportLibraryUrlManifest(APP_VERSION);
-      downloadBlob(blob, buildUrlManifestFilename());
-      showToast("Downloaded URL recovery file.");
+      const blob = await exportLibraryBackup(APP_VERSION);
+      downloadBlob(blob, buildBackupFilename());
+      showToast("Downloaded backup.");
     } catch (error) {
       showToast(stringifyError(error));
     }
@@ -984,13 +981,24 @@ export default function App() {
   async function handleImportLibrary(file) {
     setBackupImporting(true);
     try {
-      await refreshStorageDiagnostics();
-      await importLibraryBackup(file);
+      await ensurePersistentStorage();
+      const result = await importLibraryBackup(file, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local",
+        concurrency: 2
+      });
       await refreshLibrary();
-      await refreshStorageDiagnostics();
       setRouteVersion((value) => value + 1);
-      showToast("Imported library backup.");
-      void triggerNearbySync("import");
+      void triggerNearbySync("import", {
+        force: true
+      });
+
+      if (result.kind === "manifest") {
+        showToast(
+          `Restored ${result.restoredIds.length}, skipped ${result.skippedIds.length}, failed ${result.failed.length}.`
+        );
+      } else {
+        showToast(`Restored backup with ${result.paperCount} papers.`);
+      }
     } catch (error) {
       showToast(stringifyError(error));
     } finally {
@@ -998,63 +1006,14 @@ export default function App() {
     }
   }
 
-  async function handleImportUrls(file) {
-    setUrlImporting(true);
-    setRestoreStatus(createDefaultRestoreStatus());
-
-    try {
-      await refreshStorageDiagnostics();
-      const manifest = await importLibraryUrlManifest(file);
-      const result = await restoreFromUrlManifest(manifest, {
-        deviceId: deviceIdentityRef.current?.deviceId || "local",
-        concurrency: 2,
-        onProgress: (progress) => {
-          setRestoreStatus({
-            active: progress.completed < progress.total,
-            total: progress.total,
-            completed: progress.completed,
-            currentId: progress.currentId,
-            result: progress.result
-          });
-        }
-      });
-
-      await refreshLibrary();
-      await refreshStorageDiagnostics();
-      setRouteVersion((value) => value + 1);
-      setRestoreStatus({
-        active: false,
-        total: manifest.papers.length,
-        completed: manifest.papers.length,
-        currentId: "",
-        result
-      });
-
-      if (result.restoredIds.length) {
-        void triggerNearbySync("import", {
-          force: true
-        });
-      }
-
-      showToast(
-        `Restored ${result.restoredIds.length}, skipped ${result.skippedIds.length}, failed ${result.failed.length}.`
-      );
-    } catch (error) {
-      setRestoreStatus(createDefaultRestoreStatus());
-      showToast(stringifyError(error));
-    } finally {
-      setUrlImporting(false);
-    }
-  }
-
-  async function handleEnableRecoveryFile() {
-    if (!isRecoveryFileSupported()) {
-      showToast("Recovery files are not supported in this browser.");
+  async function handleChooseBackupFile() {
+    if (!isBackupFileSupported()) {
+      showToast("Backup file updates are not supported in this browser.");
       return;
     }
 
     try {
-      const handle = await createRecoveryFileHandle();
+      const handle = await createBackupFileHandle();
       const permission = handle.requestPermission
         ? await handle.requestPermission({
             mode: "readwrite"
@@ -1062,20 +1021,26 @@ export default function App() {
         : "granted";
 
       if (permission !== "granted") {
-        throw new Error("Recovery file permission was not granted.");
+        throw new Error("Backup file permission was not granted.");
       }
 
-      recoveryFileHandleRef.current = handle;
-      recoveryFingerprintRef.current = "";
-      await setSetting(SETTING_KEYS.recoveryFileHandle, handle);
-      await persistRecoveryFileState({
+      backupFileHandleRef.current = handle;
+      backupFingerprintRef.current = "";
+      try {
+        await setSetting(SETTING_KEYS.backupFileHandle, handle);
+      } catch (error) {
+        console.warn("Failed to persist backup file handle", error);
+      }
+      await persistBackupState({
         supported: true,
         enabled: true,
         permission,
-        lastWrittenAt: recoveryFileState.lastWrittenAt,
-        filename: String(handle.name || recoveryFileState.filename || "").trim()
+        lastWrittenAt: backupState.lastWrittenAt,
+        filename: String(handle.name || backupState.filename || "").trim(),
+        lastMirroredFingerprint: backupState.lastMirroredFingerprint,
+        lastMirroredPaperIds: backupState.lastMirroredPaperIds
       });
-      await mirrorRecoveryFile(library.papers, {
+      await mirrorBackupFile(library.papers, {
         showSuccessToast: true
       });
     } catch (error) {
@@ -1083,7 +1048,7 @@ export default function App() {
         return;
       }
 
-      console.error("Failed to enable recovery file", error);
+      console.error("Failed to choose backup file", error);
       showToast(stringifyError(error));
     }
   }
@@ -1696,17 +1661,16 @@ export default function App() {
           papers={library.papers}
           loading={library.loading}
           backupImporting={backupImporting}
-          urlImporting={urlImporting}
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
-          storageDiagnostics={storageDiagnostics}
-          restoreStatus={restoreStatus}
-          recoveryFileState={recoveryFileState}
+          backupState={backupState}
+          showOpenFromArxivHelp={!openFromArxivHelpDismissed}
           deviceIdentity={deviceIdentity}
           pairedDevices={pairedDevices}
           nearbyState={nearbyState}
           pairRouteInviteId={route.pairInviteId}
-          onEnableRecoveryFile={handleEnableRecoveryFile}
+          onDismissOpenFromArxivHelp={dismissOpenFromArxivHelp}
+          onChooseBackupFile={handleChooseBackupFile}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
           onJoinInvite={handleJoinInvite}
@@ -1720,10 +1684,8 @@ export default function App() {
           onOpenPaper={(paperId) => navigate(`/?paper=${encodeURIComponent(paperId)}`)}
           onExportPaper={handleExportPaper}
           onDeletePaper={handleDeletePaper}
-          onExportLibrary={handleExportLibrary}
-          onExportUrls={handleExportUrls}
-          onImportFile={handleImportLibrary}
-          onImportUrlFile={handleImportUrls}
+          onDownloadBackup={handleExportLibrary}
+          onRestoreBackup={handleImportLibrary}
           formatPairSyncStatus={formatPairSyncStatus}
         />
       )}
@@ -1882,55 +1844,58 @@ function clearPairQueryParam() {
   window.history.replaceState(window.history.state, "", nextUrl);
 }
 
-function createDefaultStorageDiagnostics() {
-  return {
-    supported: false,
-    persisted: false,
-    quota: 0,
-    usage: 0
-  };
-}
-
-function normalizeStorageDiagnostics(value) {
-  return {
-    supported: Boolean(value?.supported),
-    persisted: Boolean(value?.persisted),
-    quota: Number(value?.quota || 0),
-    usage: Number(value?.usage || 0)
-  };
-}
-
-function createDefaultRestoreStatus() {
-  return {
-    active: false,
-    total: 0,
-    completed: 0,
-    currentId: "",
-    result: null
-  };
-}
-
-function createDefaultRecoveryFileState() {
+function createDefaultBackupState() {
   return {
     enabled: false,
-    supported: isRecoveryFileSupported(),
+    supported: isBackupFileSupported(),
     permission: "unknown",
     lastWrittenAt: "",
-    filename: ""
+    filename: "",
+    lastMirroredFingerprint: "",
+    lastMirroredPaperIds: []
   };
 }
 
-function normalizeRecoveryFileState(value) {
+function normalizeBackupState(value) {
   return {
     enabled: Boolean(value?.enabled),
     supported:
-      typeof value?.supported === "boolean" ? value.supported : isRecoveryFileSupported(),
+      typeof value?.supported === "boolean" ? value.supported : isBackupFileSupported(),
     permission: ["granted", "prompt", "denied"].includes(value?.permission)
       ? value.permission
       : "unknown",
     lastWrittenAt: String(value?.lastWrittenAt || ""),
-    filename: String(value?.filename || "").trim()
+    filename: String(value?.filename || "").trim(),
+    lastMirroredFingerprint: String(value?.lastMirroredFingerprint || ""),
+    lastMirroredPaperIds: Array.isArray(value?.lastMirroredPaperIds)
+      ? value.lastMirroredPaperIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : []
   };
+}
+
+function migrateLegacyRecoveryState(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    enabled: Boolean(value.enabled),
+    supported:
+      typeof value.supported === "boolean" ? value.supported : isBackupFileSupported(),
+    permission: value.permission,
+    lastWrittenAt: value.lastWrittenAt,
+    filename: value.filename,
+    lastMirroredFingerprint: "",
+    lastMirroredPaperIds: []
+  };
+}
+
+function readOpenFromArxivHelpDismissedFlag() {
+  try {
+    return window.localStorage?.getItem("openFromArxivHelpDismissed") === "1";
+  } catch {
+    return false;
+  }
 }
 
 function isPermissionError(error) {

@@ -1,16 +1,16 @@
-import { buildUrlManifestFilename } from "./urlManifest";
+import { buildBackupFilename } from "./exportImport";
 
-export function isRecoveryFileSupported() {
+export function isBackupFileSupported() {
   return typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
 }
 
-export async function createRecoveryFileHandle() {
-  if (!isRecoveryFileSupported()) {
-    throw new Error("Recovery files are not supported in this browser.");
+export async function createBackupFileHandle() {
+  if (!isBackupFileSupported()) {
+    throw new Error("Backup file updates are not supported in this browser.");
   }
 
   return window.showSaveFilePicker({
-    suggestedName: buildUrlManifestFilename(),
+    suggestedName: buildBackupFilename(),
     excludeAcceptAllOption: false,
     types: [
       {
@@ -23,24 +23,24 @@ export async function createRecoveryFileHandle() {
   });
 }
 
-export async function writeRecoveryFile(handle, manifest) {
+export async function writeBackupFile(handle, payload) {
   if (!handle?.createWritable) {
-    throw new Error("Recovery file handle is unavailable.");
+    throw new Error("Backup file handle is unavailable.");
   }
 
   const writable = await handle.createWritable();
-  await writable.write(`${JSON.stringify(manifest, null, 2)}\n`);
+  await writable.write(`${JSON.stringify(payload, null, 2)}\n`);
   await writable.close();
 
   return {
     lastWrittenAt: new Date().toISOString(),
-    filename: String(handle.name || buildUrlManifestFilename()).trim()
+    filename: String(handle.name || buildBackupFilename()).trim()
   };
 }
 
-export async function getRecoveryFilePermission(handle) {
+export async function getBackupFilePermission(handle) {
   if (!handle?.queryPermission) {
-    return "unknown";
+    return handle?.createWritable ? "granted" : "unknown";
   }
 
   try {

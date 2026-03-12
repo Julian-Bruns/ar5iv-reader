@@ -20,9 +20,8 @@ export default function ReaderView({
 }) {
   const articleRef = useRef(null);
   const showToastRef = useRef(showToast);
-  const [showQuickActions, setShowQuickActions] = useState(false);
   const [dismissedNotice, setDismissedNotice] = useState(false);
-  const [showNoticeMenu, setShowNoticeMenu] = useState(false);
+  const [showActionMenu, setShowActionMenu] = useState(false);
   const [dragState, setDragState] = useState({ draggedKey: "", targetKey: "", placement: "before" });
 
   useEffect(() => {
@@ -53,12 +52,8 @@ export default function ReaderView({
   }, [paper?.id, paper?.sanitizedHtml]);
 
   useEffect(() => {
-    setShowQuickActions(false);
-  }, [paper?.id]);
-
-  useEffect(() => {
     setDismissedNotice(false);
-    setShowNoticeMenu(false);
+    setShowActionMenu(false);
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
 
   useEffect(() => {
@@ -123,74 +118,6 @@ export default function ReaderView({
 
     return () => window.cancelAnimationFrame(frame);
   }, [paper?.id, paper?.sanitizedHtml]);
-
-  useEffect(() => {
-    if (!paper) {
-      return undefined;
-    }
-
-    let frame = 0;
-    let lastY = window.scrollY;
-    let upwardTravel = 0;
-    let downwardTravel = 0;
-
-    const setVisible = (nextVisible) => {
-      setShowQuickActions((currentVisible) =>
-        currentVisible === nextVisible ? currentVisible : nextVisible
-      );
-    };
-
-    const updateQuickActions = () => {
-      frame = 0;
-      const nextY = window.scrollY;
-      const delta = nextY - lastY;
-      lastY = nextY;
-
-      if (nextY <= 140) {
-        upwardTravel = 0;
-        downwardTravel = 0;
-        setVisible(false);
-        return;
-      }
-
-      if (Math.abs(delta) < 2) {
-        return;
-      }
-
-      if (delta < 0) {
-        upwardTravel += -delta;
-        downwardTravel = 0;
-
-        if (nextY > 240 && upwardTravel >= 88) {
-          setVisible(true);
-        }
-        return;
-      }
-
-      downwardTravel += delta;
-      upwardTravel = 0;
-
-      if (downwardTravel >= 36) {
-        setVisible(false);
-      }
-    };
-
-    const onScroll = () => {
-      if (!frame) {
-        frame = window.requestAnimationFrame(updateQuickActions);
-      }
-    };
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    updateQuickActions();
-
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (frame) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, [paper?.id, paper?.mode]);
 
   return (
     <div className="reader-shell">
@@ -297,30 +224,9 @@ export default function ReaderView({
         </div>
       ) : null}
 
-      <div
-        className={`reader-quickbar${showQuickActions ? " reader-quickbar--visible" : ""}`}
-      >
-        <div className="reader-quickbar-inner">
-          <button className="ghost-button" type="button" onClick={onBack}>
-            Back to Library
-          </button>
-          {paper?.mode === "session" && paper?.view === "html" ? (
-            <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
-              {busy ? "Saving…" : "Save to Library"}
-            </button>
-          ) : null}
-        </div>
-      </div>
-
       <header className="reader-topbar">
         <div className="reader-context">
-          <p className="reader-kicker">
-            {paper?.mode === "saved"
-              ? "Offline library copy"
-              : paper?.view === "pdf"
-                ? "PDF fallback"
-                : "Skim mode"}
-          </p>
+          <p className="reader-kicker">{getReaderStatusLabel(paper)}</p>
           <p className="reader-meta">
             {paper?.sourceUrl ? (
               <a className="reader-id-link" href={paper.sourceUrl} target="_blank" rel="noreferrer">
@@ -342,24 +248,61 @@ export default function ReaderView({
               {busy ? "Saving…" : "Save to Library"}
             </button>
           ) : null}
-          {paper?.view === "pdf" && paper?.pdfUrl ? (
-            <a className="ghost-button" href={paper.pdfUrl} target="_blank" rel="noreferrer">
-              Open PDF
-            </a>
-          ) : null}
-          {paper?.mode === "saved" ? (
-            <>
-              <button className="ghost-button" type="button" onClick={onExport}>
-                Export HTML
-              </button>
+          {shouldShowActionMenu(paper, fallbackNoticeEnabled) ? (
+            <div className="reader-menu-shell">
               <button
-                className="ghost-button ghost-button--danger"
+                className="ghost-button"
                 type="button"
-                onClick={onDelete}
+                aria-label="More reader actions"
+                onClick={() => setShowActionMenu((value) => !value)}
               >
-                Remove
+                More
               </button>
-            </>
+              {showActionMenu ? (
+                <div className="reader-menu">
+                  {paper?.view === "pdf" && paper?.pdfUrl ? (
+                    <a href={paper.pdfUrl} target="_blank" rel="noreferrer" onClick={() => setShowActionMenu(false)}>
+                      Open PDF
+                    </a>
+                  ) : null}
+                  {paper?.mode === "saved" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowActionMenu(false);
+                        onExport();
+                      }}
+                    >
+                      Export HTML
+                    </button>
+                  ) : null}
+                  {paper?.mode === "saved" ? (
+                    <button
+                      className="reader-menu-danger"
+                      type="button"
+                      onClick={() => {
+                        setShowActionMenu(false);
+                        onDelete();
+                      }}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                  {paper?.notice && fallbackNoticeEnabled ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDismissedNotice(true);
+                        setShowActionMenu(false);
+                        onDisableFallbackNotice();
+                      }}
+                    >
+                      Don&apos;t show this notice again
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </header>
@@ -375,35 +318,11 @@ export default function ReaderView({
               aria-label="Dismiss PDF fallback notice"
               onClick={() => {
                 setDismissedNotice(true);
-                setShowNoticeMenu(false);
+                setShowActionMenu(false);
               }}
             >
               ×
             </button>
-            <div className="banner-menu-shell">
-              <button
-                className="banner-icon"
-                type="button"
-                aria-label="PDF fallback notice options"
-                onClick={() => setShowNoticeMenu((value) => !value)}
-              >
-                ⋯
-              </button>
-              {showNoticeMenu ? (
-                <div className="banner-menu">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDismissedNotice(true);
-                      setShowNoticeMenu(false);
-                      onDisableFallbackNotice();
-                    }}
-                  >
-                    Don&apos;t show this again
-                  </button>
-                </div>
-              ) : null}
-            </div>
           </div>
         </div>
       ) : null}
@@ -583,4 +502,24 @@ function formatTabLabel(title, tabCount) {
 
   const clipped = shortened.slice(0, maxLength).trimEnd();
   return `${clipped}…`;
+}
+
+function getReaderStatusLabel(paper) {
+  if (paper?.mode === "saved") {
+    return "Saved Offline";
+  }
+
+  if (paper?.view === "pdf") {
+    return "PDF Fallback";
+  }
+
+  return "Skim";
+}
+
+function shouldShowActionMenu(paper, fallbackNoticeEnabled) {
+  return Boolean(
+    (paper?.view === "pdf" && paper?.pdfUrl) ||
+      paper?.mode === "saved" ||
+      (paper?.notice && fallbackNoticeEnabled)
+  );
 }

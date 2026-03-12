@@ -229,6 +229,7 @@ input {
 }
 
 .hero-panel,
+.dashboard-header,
 .card,
 .reader-topbar,
 .reader-frame {
@@ -240,12 +241,19 @@ input {
 }
 
 .hero-panel,
+.dashboard-header,
 .reader-topbar {
   display: grid;
   grid-template-columns: 1.3fr 0.7fr;
   gap: 1.5rem;
   padding: 1.75rem;
   animation: rise 420ms ease;
+}
+
+.dashboard-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 1.15rem 1.35rem;
 }
 
 .reader-topbar {
@@ -256,6 +264,7 @@ input {
 }
 
 .hero-panel h1,
+.dashboard-header h1,
 .reader-topbar h1 {
   margin: 0.25rem 0 0.5rem;
   font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
@@ -263,6 +272,11 @@ input {
   line-height: 0.96;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.dashboard-header h1 {
+  margin: 0.1rem 0 0;
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
 }
 
 .eyebrow,
@@ -310,6 +324,14 @@ input {
 
 .reader-actions {
   align-items: center;
+}
+
+.reader-kicker {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(244, 93, 49, 0.1);
 }
 
 .card,
@@ -439,6 +461,11 @@ input {
   color: var(--accent-dark);
 }
 
+.ghost-button--subtle {
+  background: transparent;
+  border-color: rgba(122, 31, 21, 0.08);
+}
+
 .ghost-button--danger {
   color: #9e2f1f;
 }
@@ -474,6 +501,10 @@ input {
 .setup-card {
   display: grid;
   gap: 1rem;
+}
+
+.setup-card--inline {
+  margin-top: 1.25rem;
 }
 
 .sync-card {
@@ -535,6 +566,114 @@ input {
 
 .setup-guide code {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+.library-toolbar {
+  margin-bottom: 1rem;
+}
+
+.paper-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.paper-row,
+.tools-subsection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.74);
+  border: 1px solid rgba(122, 31, 21, 0.1);
+}
+
+.paper-row-copy {
+  min-width: 0;
+}
+
+.paper-row h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1.02rem;
+}
+
+.paper-row .paper-id,
+.paper-row .paper-meta {
+  margin-top: 0.2rem;
+}
+
+.paper-menu-shell,
+.reader-menu-shell {
+  position: relative;
+  z-index: 3;
+}
+
+.paper-menu,
+.reader-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 4;
+  display: grid;
+  min-width: 12rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(122, 31, 21, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 251, 245, 0.98);
+  box-shadow: 0 16px 28px rgba(74, 44, 29, 0.14);
+}
+
+.paper-menu button,
+.reader-menu button,
+.reader-menu a {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  background: transparent;
+  color: var(--accent-dark);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.paper-menu button:hover,
+.reader-menu button:hover,
+.reader-menu a:hover {
+  background: rgba(122, 31, 21, 0.08);
+}
+
+.paper-menu-danger,
+.reader-menu-danger {
+  color: #9e2f1f !important;
+}
+
+.tools-card {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1rem;
+}
+
+.library-card {
+  position: relative;
+  z-index: 2;
+}
+
+.tools-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.tools-stack > .card {
+  margin-top: 0;
+}
+
+.tools-subsection {
+  grid-template-columns: 1fr;
+  align-items: stretch;
 }
 
 .sync-grid {
@@ -1128,7 +1267,9 @@ input {
   }
 
   .hero-panel,
+  .dashboard-header,
   .paper-card,
+  .paper-row,
   .pair-card,
   .sync-grid,
   .sync-connect-form {
@@ -1169,6 +1310,7 @@ input {
 
   .reader-topbar,
   .reader-frame,
+  .dashboard-header,
   .hero-panel,
   .card {
     backdrop-filter: none;

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 import { buildBookmarkletHref } from "../lib/bookmarklet";
 
-export default function BookmarkSetupPanel({ open, onClose }) {
+export default function BookmarkSetupPanel({
+  inline = false,
+  onDismiss = null
+}) {
   const [bookmarkletHref, setBookmarkletHref] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
 
@@ -29,9 +32,7 @@ export default function BookmarkSetupPanel({ open, onClose }) {
 
     try {
       await navigator.clipboard.writeText(bookmarkletHref);
-      setCopyMessage(
-        "Copied. Create a bookmark and paste the copied text into the bookmark URL field."
-      );
+      setCopyMessage("Copied. Paste it into a bookmark URL on desktop.");
     } catch {
       setCopyMessage("Copy failed. Drag the button into the bookmarks bar instead.");
     }
@@ -42,36 +43,30 @@ export default function BookmarkSetupPanel({ open, onClose }) {
     setCopyMessage("Drag this button into the bookmarks bar. Do not click it here.");
   }
 
-  if (!open) {
-    return null;
-  }
-
   return (
-    <section className="card setup-card">
+    <section className={`card setup-card${inline ? " setup-card--inline" : ""}`}>
       <div className="setup-header">
         <div className="section-heading">
-          <h2>Set Up the Bookmark</h2>
-          <p>One short setup, then one click from any arXiv abstract page.</p>
+          <h2>How to open from arXiv</h2>
+          <p>
+            On phones, use Share. On desktop, save the bookmark once and use it from
+            any arXiv abstract page.
+          </p>
         </div>
-        <button className="ghost-button" type="button" onClick={onClose}>
-          Close
-        </button>
+        {onDismiss ? (
+          <button className="ghost-button" type="button" onClick={onDismiss}>
+            Dismiss
+          </button>
+        ) : null}
       </div>
 
       <div className="setup-guide">
         <p>
-          On phones, the more stable option is the system share sheet: open an arXiv
-          page, tap Share, then choose ar5iv Reader.
+          On phones, open an arXiv page, tap Share, then choose ar5iv Reader.
         </p>
         <p>
-          1. Install the reader if you want desktop bookmark launching too.
-        </p>
-        <p>
-          2. Open a new tab. If you do not see the bookmarks bar, click the
-          bookmarks bar area in the new tab to turn it on.
-        </p>
-        <p>
-          3. Drag this button into the bookmarks bar:
+          On desktop, drag this button into the bookmarks bar or copy it into a
+          bookmark URL:
         </p>
         <div className="setup-actions">
           <a
@@ -82,18 +77,12 @@ export default function BookmarkSetupPanel({ open, onClose }) {
             Open in ar5iv Reader
           </a>
           <button className="ghost-button" type="button" onClick={handleCopyBookmarklet}>
-            Copy Instead
+            Copy Bookmark
           </button>
         </div>
         <p>
-          4. If you already saved an older bookmark, replace it with this one so it
-          picks up the latest launch behavior.
-        </p>
-        <p>
-          5. Later, open any `arxiv.org/abs/...` page and press that bookmark. The
-          current tab navigates through the app&apos;s `/receive` route. Installed
-          browsers may hand that navigation to the app; otherwise the paper opens in
-          skim mode in the browser tab.
+          Later, open any <code>arxiv.org/abs/...</code> page and use that bookmark to
+          jump straight into the reader.
         </p>
       </div>
 

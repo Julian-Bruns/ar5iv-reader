@@ -111,7 +111,6 @@ export default function SyncPanel({
           <div className="sync-identity">
             <p className="sync-label">This Device</p>
             <strong>{deviceIdentity?.label || "Loading device…"}</strong>
-            <code className="sync-code">{deviceIdentity?.deviceId || "Generating…"}</code>
             <div className="setup-actions">
               <button className="ghost-button" type="button" onClick={onRenameThisDevice}>
                 Rename
@@ -122,12 +121,7 @@ export default function SyncPanel({
           <div className="sync-state">
             <p className="sync-label">Nearby Status</p>
             <p className="sync-summary">{renderNearbySummary(nearbyState, pairRouteInviteId)}</p>
-            <p className="paper-meta">
-              Relay: {renderRelayState(nearbyState.relayStatus)}
-            </p>
-            <p className="paper-meta">
-              Other paired devices online: {nearbyState.onlinePeerIds.length}
-            </p>
+            <p className="paper-meta">{renderRelayState(nearbyState.relayStatus)}</p>
           </div>
         </div>
 
@@ -186,7 +180,6 @@ export default function SyncPanel({
               <article className="pair-card" key={pair.peerDeviceId}>
                 <div>
                   <h3>{pair.peerLabel}</h3>
-                  <p className="paper-id">{pair.peerDeviceId}</p>
                   <p className="paper-meta">
                     {renderPairStatus(pair, nearbyState.onlinePeerIds, formatPairSyncStatus)}
                   </p>

@@ -9,10 +9,13 @@ const SNAPSHOT_SCHEMA_VERSION = 2;
 const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled"]);
 
 export const SETTING_KEYS = Object.freeze({
+  openFromArxivHelpDismissed: "openFromArxivHelpDismissed",
   deviceIdentity: "deviceIdentity",
   nearbySyncState: "nearbySyncState",
   pairedDevices: "pairedDevices",
   pdfFallbackNoticeEnabled: "pdfFallbackNoticeEnabled",
+  backupFileHandle: "backupFileHandle",
+  backupState: "backupState",
   recoveryFileHandle: "recoveryFileHandle",
   recoveryFileState: "recoveryFileState",
   storageDiagnostics: "storageDiagnostics"

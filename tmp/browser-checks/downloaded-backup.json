@@ -1,0 +1,46 @@
+{
+  "format": "ar5iv-reader-backup",
+  "schemaVersion": 1,
+  "exportedAt": "2026-03-12T18:13:44.705Z",
+  "appVersion": "0.3.0",
+  "origin": "http://127.0.0.1:4173",
+  "librarySnapshot": {
+    "schemaVersion": 2,
+    "exportedAt": "2026-03-12T18:13:44.705Z",
+    "papers": [
+      {
+        "id": "1706.03762",
+        "title": "Attention Is All You Need",
+        "sourceUrl": "1706.03762",
+        "ar5ivUrl": "https://arxiv.org/html/1706.03762",
+        "savedAt": "2026-03-12T18:13:41.906Z",
+        "updatedAt": "2026-03-12T18:13:41.907Z",
+        "revisionMs": 1773339221907,
+        "revisionDeviceId": "1b563a63-1093-42ca-b616-3d3b87a58c19",
+        "deletedAtMs": 0,
+        "deletedAt": "",
+        "html": "<!doctype html>\n  <html>\n    <head>\n      <title>Attention Is All You Need</title>\n    </head>\n    <body>\n      <article class=\"ltx_document\">\n        <h1 class=\"ltx_title ltx_title_document\">Attention Is All You Need</h1>\n        <section class=\"ltx_abstract\">\n          <p>This is a browser test fixture for the ar5iv Reader UI.</p>\n        </section>\n        <section class=\"ltx_section\">\n          <h2>Introduction</h2>\n          <p>Rendered HTML is present, so the page should open in skim mode and allow save.</p>\n        </section>\n      </article>\n    </body>\n  </html>",
+        "assetUrls": []
+      }
+    ],
+    "assets": [],
+    "settings": []
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "exportedAt": "2026-03-12T18:13:44.705Z",
+    "appVersion": "0.3.0",
+    "origin": "http://127.0.0.1:4173",
+    "papers": [
+      {
+        "id": "1706.03762",
+        "title": "Attention Is All You Need",
+        "sourceUrl": "1706.03762",
+        "ar5ivUrl": "https://arxiv.org/html/1706.03762",
+        "savedAt": "2026-03-12T18:13:41.906Z",
+        "updatedAt": "2026-03-12T18:13:41.907Z",
+        "revisionMs": 1773339221907
+      }
+    ]
+  }
+}

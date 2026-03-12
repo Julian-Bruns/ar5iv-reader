@@ -1,0 +1,108 @@
+[
+  {
+    "name": "desktop-main-order",
+    "order": [
+      {
+        "selector": "header.dashboard-header",
+        "y": 32,
+        "height": 95.171875
+      },
+      {
+        "selector": "section.form-card",
+        "y": 147.171875,
+        "height": 173.984375
+      },
+      {
+        "selector": "section.setup-card--inline",
+        "y": 341.15625,
+        "height": 327.203125
+      },
+      {
+        "selector": "section.library-card",
+        "y": 688.359375,
+        "height": 213.984375
+      },
+      {
+        "selector": "section.tools-card",
+        "y": 922.34375,
+        "height": 117.609375
+      }
+    ]
+  },
+  {
+    "name": "desktop-help-dismissal",
+    "helperDismissed": true,
+    "helperInSettings": true
+  },
+  {
+    "name": "mobile-main-order",
+    "order": [
+      {
+        "selector": "header.dashboard-header",
+        "y": 16,
+        "height": 160.796875
+      },
+      {
+        "selector": "section.form-card",
+        "y": 196.796875,
+        "height": 263.171875
+      },
+      {
+        "selector": "section.setup-card--inline",
+        "y": 479.96875,
+        "height": 646.390625
+      },
+      {
+        "selector": "section.library-card",
+        "y": 1146.359375,
+        "height": 261.984375
+      },
+      {
+        "selector": "section.tools-card",
+        "y": 1428.34375,
+        "height": 205.203125
+      }
+    ]
+  },
+  {
+    "name": "reader-status-and-actions",
+    "status": "Saved Offline",
+    "quickbarCount": 0
+  },
+  {
+    "name": "backup-mirror-after-save",
+    "status": "1 of 1 papers included in backup.",
+    "mirrorSummary": {
+      "filename": "ar5iv-reader-backup-2026-03-12.json",
+      "format": "ar5iv-reader-backup",
+      "paperCount": 1,
+      "snapshotPaperCount": 1
+    }
+  },
+  {
+    "name": "backup-mirror-after-delete",
+    "status": "0 of 0 papers included in backup.",
+    "mirrorSummary": {
+      "filename": "ar5iv-reader-backup-2026-03-12.json",
+      "format": "ar5iv-reader-backup",
+      "paperCount": 0,
+      "snapshotPaperCount": 0
+    }
+  },
+  {
+    "name": "backup-restore",
+    "status": "1 of 1 papers included in backup.",
+    "mirrorSummary": {
+      "filename": "ar5iv-reader-backup-2026-03-12.json",
+      "format": "ar5iv-reader-backup",
+      "paperCount": 1,
+      "snapshotPaperCount": 1
+    },
+    "paperRestored": true
+  },
+  {
+    "name": "library-search",
+    "query": "attention",
+    "visibleRows": 1
+  }
+]
