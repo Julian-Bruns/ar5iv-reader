@@ -812,9 +812,45 @@ input {
 
 .paper-body .ltx_title,
 .paper-body .ltx_title_document {
-  font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1.05;
   margin-bottom: 1rem;
+}
+
+.paper-body .ltx_title_document {
+  font-size: 1.7rem;
+}
+
+.paper-body .ltx_subtitle {
+  font-size: 1.3rem;
+}
+
+.paper-body .ltx_title_part,
+.paper-body .ltx_title_chapter {
+  font-size: 1.6rem;
+}
+
+.paper-body .ltx_title_section,
+.paper-body .ltx_title_abstract,
+.paper-body .ltx_title_contents,
+.paper-body .ltx_title_acknowledgements,
+.paper-body .ltx_title_appendix,
+.paper-body .ltx_title_index,
+.paper-body .ltx_title_bibliography {
+  font-size: 1.4rem;
+}
+
+.paper-body .ltx_title_subsection {
+  font-size: 1.2rem;
+}
+
+.paper-body .ltx_title_subsubsection,
+.paper-body .ltx_title_paragraph,
+.paper-body .ltx_title_subparagraph,
+.paper-body .ltx_title_keywords,
+.paper-body .ltx_title_classification,
+.paper-body .ltx_title_theorem,
+.paper-body .ltx_title_proof {
+  font-size: 1rem;
 }
 
 .paper-body .ltx_abstract,
