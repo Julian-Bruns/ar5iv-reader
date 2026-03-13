@@ -41,16 +41,16 @@ async function runDesktopLayoutCheck(browser) {
     await page.goto(APP_URL, { waitUntil: "networkidle" });
     await expectVisible(page.getByRole("heading", { name: "ar5iv Reader" }));
     await expectVisible(page.getByRole("heading", { name: "Open Paper" }));
-    await expectVisible(page.getByRole("heading", { name: "How to open from arXiv" }));
     await expectVisible(page.getByRole("heading", { name: "Saved Library" }));
-    await expectVisible(page.getByRole("heading", { name: "Tools & Settings" }));
+    await expectVisible(page.getByText("copying math formulas has never been easier"));
+    await expectVisible(
+      page.getByText("Paste an arXiv URL, or use the bookmarklet found in settings.")
+    );
 
     const order = await readVerticalOrder(page, [
       "header.dashboard-header",
       "section.form-card",
-      "section.setup-card--inline",
-      "section.library-card",
-      "section.tools-card"
+      "section.library-card"
     ]);
     findings.push({
       name: "desktop-main-order",
@@ -63,24 +63,24 @@ async function runDesktopLayoutCheck(browser) {
       fullPage: true
     });
 
-    await page.getByRole("button", { name: "Dismiss" }).click();
-    await page.reload({ waitUntil: "networkidle" });
-    await expectHidden(page.getByRole("heading", { name: "How to open from arXiv" }).first());
-
-    await page.getByRole("button", { name: "Tools & Settings" }).first().click();
-    await expectVisible(page.locator(".tools-card").getByRole("heading", { name: "Backup" }));
-    await expectVisible(page.locator(".tools-card").getByRole("heading", { name: "Nearby Sync" }));
-    await expectVisible(page.locator(".tools-card").getByRole("heading", { name: "How to open from arXiv" }));
-
-    findings.push({
-      name: "desktop-help-dismissal",
-      helperDismissed: true,
-      helperInSettings: true
-    });
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await expectVisible(page.locator(".settings-modal").getByRole("heading", { name: "Settings" }));
+    await expectVisible(page.locator(".settings-modal").getByRole("heading", { name: "Backup" }));
+    await expectVisible(page.locator(".settings-modal").getByRole("heading", { name: "Nearby Sync" }));
+    await expectVisible(page.locator(".settings-modal").getByRole("heading", { name: "Bookmarklet" }));
 
     await page.screenshot({
-      path: path.join(OUT_DIR, "desktop-tools-expanded.png"),
+      path: path.join(OUT_DIR, "desktop-settings-open.png"),
       fullPage: true
+    });
+
+    await page.getByRole("button", { name: "Close settings" }).click();
+    await expectHidden(page.locator(".settings-modal"));
+
+    findings.push({
+      name: "desktop-settings-modal",
+      settingsModalOpened: true,
+      settingsModalClosed: true
     });
   } finally {
     await context.close();
@@ -103,9 +103,7 @@ async function runMobileLayoutCheck(browser) {
     const order = await readVerticalOrder(page, [
       "header.dashboard-header",
       "section.form-card",
-      "section.setup-card--inline",
-      "section.library-card",
-      "section.tools-card"
+      "section.library-card"
     ]);
     findings.push({
       name: "mobile-main-order",
@@ -242,7 +240,7 @@ async function runReaderBackupFlowCheck(browser) {
       fullPage: true
     });
 
-    await page.getByRole("button", { name: "Tools & Settings" }).first().click();
+    await page.getByRole("button", { name: "Open settings" }).click();
     await expectVisible(page.getByRole("button", { name: "Keep Backup File Updated" }));
     await page.getByRole("button", { name: "Keep Backup File Updated" }).click();
     await page.waitForTimeout(2000);
@@ -260,13 +258,13 @@ async function runReaderBackupFlowCheck(browser) {
     const backupPath = path.join(OUT_DIR, "downloaded-backup.json");
     await backupDownload.saveAs(backupPath);
 
-    await page.getByRole("button", { name: "Collapse" }).click();
+    await page.getByRole("button", { name: "Close settings" }).click();
     await page.locator(".paper-row").first().getByRole("button", { name: "More" }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Remove" }).click();
     await expectVisible(page.getByText("No saved papers yet."));
 
-    await page.getByRole("button", { name: "Tools & Settings" }).first().click();
+    await page.getByRole("button", { name: "Open settings" }).click();
     await expectText(page.locator(".tools-subsection .status-line"), "0 of 0 papers included in backup.");
     findings.push({
       name: "backup-mirror-after-delete",

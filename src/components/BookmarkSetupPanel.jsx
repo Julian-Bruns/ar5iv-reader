@@ -47,10 +47,10 @@ export default function BookmarkSetupPanel({
     <section className={`card setup-card${inline ? " setup-card--inline" : ""}`}>
       <div className="setup-header">
         <div className="section-heading">
-          <h2>How to open from arXiv</h2>
+          <h2>Bookmarklet</h2>
           <p>
-            On phones, use Share. On desktop, save the bookmark once and use it from
-            any arXiv abstract page.
+            On phones, use Share. On desktop, save the bookmark once and launch the
+            reader from any arXiv abstract page.
           </p>
         </div>
         {onDismiss ? (

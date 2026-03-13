@@ -1664,12 +1664,10 @@ export default function App() {
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
           backupState={backupState}
-          showOpenFromArxivHelp={!openFromArxivHelpDismissed}
           deviceIdentity={deviceIdentity}
           pairedDevices={pairedDevices}
           nearbyState={nearbyState}
           pairRouteInviteId={route.pairInviteId}
-          onDismissOpenFromArxivHelp={dismissOpenFromArxivHelp}
           onChooseBackupFile={handleChooseBackupFile}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
