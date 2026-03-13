@@ -29,6 +29,7 @@ import {
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
 import { resolveLaunchTarget } from "./lib/launchTarget";
+import { isReceiveIngressUrl, readReceivePayload } from "./lib/receiveIngress";
 import {
   extractPaperMetadata,
   normalizePaperTitle,
@@ -884,7 +885,7 @@ export default function App() {
     }
 
     setLibraryInput(trimmed);
-    const target = new URL("/receive", window.location.origin);
+    const target = new URL("/", window.location.origin);
     target.searchParams.set("url", trimmed);
     navigate(`${target.pathname}${target.search}`);
   }
@@ -1695,23 +1696,18 @@ export default function App() {
 
 function parseRoute() {
   const url = new URL(window.location.href);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const paperId = url.searchParams.get("paper")?.trim() || "";
   const pairInviteId =
     extractInviteId(url.searchParams.get("pair")) ||
     extractProtocolPairId(url.searchParams.get("protocol"));
+  const protocolPayload = parseProtocolPayload(url.searchParams.get("protocol"));
 
-  if (pathname === "/receive") {
-    const protocolPayload = parseProtocolPayload(url.searchParams.get("protocol"));
+  if (isReceiveIngressUrl(url, protocolPayload)) {
     return {
       kind: "receive",
       paperId: "",
       pairInviteId,
-      payload: {
-        url: url.searchParams.get("url") || protocolPayload.url || "",
-        text: url.searchParams.get("text") || protocolPayload.text || "",
-        title: url.searchParams.get("title") || protocolPayload.title || ""
-      }
+      payload: readReceivePayload(url, protocolPayload)
     };
   }
 

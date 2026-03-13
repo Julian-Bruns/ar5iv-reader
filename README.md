@@ -169,7 +169,7 @@ Before sending the link to friends, test:
 ## Routes
 
 - `/` shows the local library dashboard
-- `/receive?url=<url>&title=<title>&text=<text>` handles share/bookmarklet ingress
+- `/?url=<url>&title=<title>&text=<text>` and `/receive?url=<url>&title=<title>&text=<text>` handle share/bookmarklet ingress
 - `/?paper=<id>` opens a saved offline paper
 - `/?pair=<inviteId>` handles one-time nearby device pairing
 
