@@ -1,22 +1,22 @@
 {
   "format": "ar5iv-reader-backup",
   "schemaVersion": 1,
-  "exportedAt": "2026-03-13T17:37:39.979Z",
+  "exportedAt": "2026-03-13T18:07:52.526Z",
   "appVersion": "0.3.0",
   "origin": "http://127.0.0.1:4173",
   "librarySnapshot": {
     "schemaVersion": 2,
-    "exportedAt": "2026-03-13T17:37:39.979Z",
+    "exportedAt": "2026-03-13T18:07:52.526Z",
     "papers": [
       {
         "id": "1706.03762",
         "title": "Attention Is All You Need",
         "sourceUrl": "1706.03762",
         "ar5ivUrl": "https://arxiv.org/html/1706.03762",
-        "savedAt": "2026-03-13T17:37:37.243Z",
-        "updatedAt": "2026-03-13T17:37:37.243Z",
-        "revisionMs": 1773423457243,
-        "revisionDeviceId": "3519edad-6f17-45f8-a89a-6c6c4f230e9d",
+        "savedAt": "2026-03-13T18:07:49.308Z",
+        "updatedAt": "2026-03-13T18:07:49.308Z",
+        "revisionMs": 1773425269308,
+        "revisionDeviceId": "a15fd725-6197-4bdb-afde-d25d736a0af6",
         "deletedAtMs": 0,
         "deletedAt": "",
         "html": "<!doctype html>\n  <html>\n    <head>\n      <title>Attention Is All You Need</title>\n    </head>\n    <body>\n      <article class=\"ltx_document\">\n        <h1 class=\"ltx_title ltx_title_document\">Attention Is All You Need</h1>\n        <section class=\"ltx_abstract\">\n          <p>This is a browser test fixture for the ar5iv Reader UI.</p>\n        </section>\n        <section class=\"ltx_section\">\n          <h2>Introduction</h2>\n          <p>Rendered HTML is present, so the page should open in skim mode and allow save.</p>\n        </section>\n      </article>\n    </body>\n  </html>",
@@ -28,7 +28,7 @@
   },
   "manifest": {
     "schemaVersion": 1,
-    "exportedAt": "2026-03-13T17:37:39.979Z",
+    "exportedAt": "2026-03-13T18:07:52.526Z",
     "appVersion": "0.3.0",
     "origin": "http://127.0.0.1:4173",
     "papers": [
@@ -37,9 +37,9 @@
         "title": "Attention Is All You Need",
         "sourceUrl": "1706.03762",
         "ar5ivUrl": "https://arxiv.org/html/1706.03762",
-        "savedAt": "2026-03-13T17:37:37.243Z",
-        "updatedAt": "2026-03-13T17:37:37.243Z",
-        "revisionMs": 1773423457243
+        "savedAt": "2026-03-13T18:07:49.308Z",
+        "updatedAt": "2026-03-13T18:07:49.308Z",
+        "revisionMs": 1773425269308
       }
     ]
   }
