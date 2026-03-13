@@ -206,7 +206,7 @@ async function runReaderBackupFlowCheck(browser) {
     await page.goto(APP_URL, { waitUntil: "networkidle" });
 
     await page.getByPlaceholder("https://arxiv.org/abs/1706.03762").fill(PAPER_ID);
-    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByRole("button", { name: "Open", exact: true }).click();
 
     await expectVisible(page.getByText("Skim"));
     await expectVisible(page.getByRole("button", { name: "Save to Library" }));
