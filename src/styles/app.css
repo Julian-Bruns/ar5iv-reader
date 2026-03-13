@@ -1009,6 +1009,22 @@ input {
   padding: clamp(0.55rem, 2vw, 1rem);
 }
 
+.reader-frame--pdf {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.reader-surface--pdf {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
 .paper-body {
   --paper-text-font-family:
     "Iowan Old Style",
@@ -1171,11 +1187,12 @@ input {
 }
 
 .pdf-viewer {
+  display: block;
   width: 100%;
-  min-height: calc(100vh - 11rem);
+  height: clamp(calc(100dvh - 8rem), 95vw, 120rem);
   border: 0;
-  border-radius: 16px;
-  background: rgba(255, 252, 246, 0.95);
+  border-radius: 0;
+  background: #fff;
 }
 
 .reader-id-link {
@@ -1403,6 +1420,10 @@ input {
 
   .reader-surface {
     padding: 0.55rem;
+  }
+
+  .pdf-viewer {
+    height: max(calc(100dvh - 7rem), 70rem);
   }
 
   .paper-root > .paper-chunk {

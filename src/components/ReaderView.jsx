@@ -327,8 +327,8 @@ export default function ReaderView({
         </div>
       ) : null}
 
-      <section className="reader-frame">
-        <div className="reader-surface">
+      <section className={`reader-frame${paper?.view === "pdf" ? " reader-frame--pdf" : ""}`}>
+        <div className={`reader-surface${paper?.view === "pdf" ? " reader-surface--pdf" : ""}`}>
           {paper?.view === "pdf" && paper?.pdfUrl ? (
             <iframe
               className="pdf-viewer"
