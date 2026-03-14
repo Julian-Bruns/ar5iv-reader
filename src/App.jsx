@@ -56,7 +56,6 @@ import {
   createBackupFileHandle,
   getBackupFilePermission,
   isBackupFileSupported,
-  readBackupFile,
   writeBackupFile
 } from "./lib/recoveryFile";
 import {
@@ -64,13 +63,11 @@ import {
   reorderReaderTabs,
   upsertReaderTab
 } from "./lib/readerTabs";
-import { activateServiceWorkerUpdate, subscribeServiceWorker } from "./lib/serviceWorker";
 import {
   createInstallMeta,
   evaluateUpgradeTransition,
   normalizeInstallMeta,
-  normalizeRecoveryState,
-  prioritizeRecoveryActions
+  normalizeRecoveryState
 } from "./lib/transition";
 
 function normalizeNearbySignalUrl(value) {
@@ -116,10 +113,6 @@ export default function App() {
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
   const [openFromArxivHelpDismissed, setOpenFromArxivHelpDismissed] = useState(false);
   const [backupState, setBackupState] = useState(createDefaultBackupState());
-  const [serviceWorkerState, setServiceWorkerState] = useState({
-    supported: typeof navigator !== "undefined" && "serviceWorker" in navigator,
-    status: "idle"
-  });
   const [deviceIdentity, setDeviceIdentity] = useState(null);
   const [pairedDevices, setPairedDevices] = useState([]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -162,15 +155,6 @@ export default function App() {
     .filter(Boolean)
     .sort();
   const pairedPeerIdsKey = pairedPeerIds.join(",");
-  const hasReadableBackupFile =
-    Boolean(backupFileHandleRef.current) && backupState.permission === "granted";
-  const onlinePairedPeers = pairedPeerIds.filter((peerId) => nearbyState.onlinePeerIds.includes(peerId));
-  const recoveryActions = prioritizeRecoveryActions({
-    hasReadableBackupFile,
-    hasOnlinePairedDevices: onlinePairedPeers.length > 0
-  });
-  const showUpdateBanner =
-    serviceWorkerState.status === "update-available" && !saving && !backupImporting;
 
   useEffect(() => {
     openTabsRef.current = openTabs;
@@ -190,8 +174,6 @@ export default function App() {
       void flushPendingNearbySync();
     }
   }, [saving]);
-
-  useEffect(() => subscribeServiceWorker(setServiceWorkerState), []);
 
   useEffect(() => {
     void refreshLibrary();
@@ -1140,44 +1122,6 @@ export default function App() {
     });
   }
 
-  async function handleImportUrls(file) {
-    return importLibraryFile(file, {
-      expectedKind: "manifest"
-    });
-  }
-
-  async function handleRestoreMirroredBackup() {
-    const handle = backupFileHandleRef.current;
-    if (!handle) {
-      showToast("No mirrored backup file is selected on this device.");
-      return;
-    }
-
-    try {
-      const file = await readBackupFile(handle);
-      await importLibraryFile(file, {
-        expectedKind: "snapshot"
-      });
-    } catch (error) {
-      showToast(stringifyError(error));
-    }
-  }
-
-  async function dismissRecoveryBanner() {
-    await persistRecoveryState({
-      status: "ignored",
-      reason: recoveryState.reason,
-      detectedAt: recoveryState.detectedAt || new Date().toISOString(),
-      dismissedAt: new Date().toISOString()
-    });
-  }
-
-  function handleApplyUpdate() {
-    if (!activateServiceWorkerUpdate()) {
-      showToast("No app update is ready yet.");
-    }
-  }
-
   async function handleChooseBackupFile() {
     if (!isBackupFileSupported()) {
       showToast("Backup file updates are not supported in this browser.");
@@ -1836,21 +1780,11 @@ export default function App() {
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
           backupState={backupState}
-          recoveryState={recoveryState}
-          recoveryActions={recoveryActions}
-          transitionState={transitionState}
-          showUpdateBanner={showUpdateBanner}
           deviceIdentity={deviceIdentity}
           pairedDevices={pairedDevices}
           nearbyState={nearbyState}
           pairRouteInviteId={route.pairInviteId}
-          hasReadableBackupFile={hasReadableBackupFile}
-          hasOnlinePairedDevices={onlinePairedPeers.length > 0}
-          appVersion={APP_VERSION}
           onChooseBackupFile={handleChooseBackupFile}
-          onApplyUpdate={handleApplyUpdate}
-          onRestoreMirroredBackup={handleRestoreMirroredBackup}
-          onDismissRecovery={dismissRecoveryBanner}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
           onJoinInvite={handleJoinInvite}
@@ -1866,7 +1800,6 @@ export default function App() {
           onDeletePaper={handleDeletePaper}
           onDownloadBackup={handleExportLibrary}
           onRestoreBackup={handleImportLibrary}
-          onRestoreUrls={handleImportUrls}
           formatPairSyncStatus={formatPairSyncStatus}
         />
       )}

@@ -1,25 +1,25 @@
 {
   "format": "ar5iv-reader-backup",
   "schemaVersion": 2,
-  "exportedAt": "2026-03-14T16:14:13.066Z",
+  "exportedAt": "2026-03-14T17:25:40.166Z",
   "appVersion": "0.3.0",
   "buildId": "0.3.0",
   "origin": "http://127.0.0.1:4173",
   "paperCount": 1,
-  "fingerprint": "1706.03762|2026-03-14T16:14:09.544Z|1706.03762",
+  "fingerprint": "1706.03762|2026-03-14T17:25:36.813Z|1706.03762",
   "librarySnapshot": {
     "schemaVersion": 2,
-    "exportedAt": "2026-03-14T16:14:13.066Z",
+    "exportedAt": "2026-03-14T17:25:40.166Z",
     "papers": [
       {
         "id": "1706.03762",
         "title": "Attention Is All You Need",
         "sourceUrl": "1706.03762",
         "ar5ivUrl": "https://arxiv.org/html/1706.03762#view=FitH",
-        "savedAt": "2026-03-14T16:14:09.544Z",
-        "updatedAt": "2026-03-14T16:14:09.544Z",
-        "revisionMs": 1773504849544,
-        "revisionDeviceId": "f0b8fc96-9866-4660-872c-147a40a6b1ce",
+        "savedAt": "2026-03-14T17:25:36.813Z",
+        "updatedAt": "2026-03-14T17:25:36.813Z",
+        "revisionMs": 1773509136813,
+        "revisionDeviceId": "5ecbaf1c-8ba9-4963-bd24-afbc85ff7732",
         "deletedAtMs": 0,
         "deletedAt": "",
         "html": "<!doctype html>\n  <html>\n    <head>\n      <title>Attention Is All You Need</title>\n    </head>\n    <body>\n      <article class=\"ltx_document\">\n        <h1 class=\"ltx_title ltx_title_document\">Attention Is All You Need</h1>\n        <section class=\"ltx_abstract\">\n          <p>This is a browser test fixture for the ar5iv Reader UI.</p>\n        </section>\n        <section class=\"ltx_section\">\n          <h2>Introduction</h2>\n          <p>Rendered HTML is present, so the page should open in skim mode and allow save.</p>\n        </section>\n      </article>\n    </body>\n  </html>",
@@ -31,7 +31,7 @@
   },
   "manifest": {
     "schemaVersion": 1,
-    "exportedAt": "2026-03-14T16:14:13.066Z",
+    "exportedAt": "2026-03-14T17:25:40.166Z",
     "appVersion": "0.3.0",
     "origin": "http://127.0.0.1:4173",
     "papers": [
@@ -40,9 +40,9 @@
         "title": "Attention Is All You Need",
         "sourceUrl": "1706.03762",
         "ar5ivUrl": "https://arxiv.org/html/1706.03762#view=FitH",
-        "savedAt": "2026-03-14T16:14:09.544Z",
-        "updatedAt": "2026-03-14T16:14:09.544Z",
-        "revisionMs": 1773504849544
+        "savedAt": "2026-03-14T17:25:36.813Z",
+        "updatedAt": "2026-03-14T17:25:36.813Z",
+        "revisionMs": 1773509136813
       }
     ]
   }
