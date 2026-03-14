@@ -162,7 +162,10 @@ export default function LibraryView({
 
           <div className="paper-list">
             {filteredPapers.map((paper) => (
-              <article className="paper-row" key={paper.id}>
+              <article
+                className={`paper-row${openPaperMenuId === paper.id ? " paper-row--menu-open" : ""}`}
+                key={paper.id}
+              >
                 <div className="paper-row-copy">
                   <h3>{paper.title}</h3>
                   <p className="paper-id">{paper.id}</p>
@@ -180,18 +183,21 @@ export default function LibraryView({
                   </button>
                   <div className="paper-menu-shell">
                     <button
-                      className="ghost-button"
+                      className="icon-button icon-button--menu"
                       type="button"
                       aria-label={`More actions for ${paper.title}`}
+                      aria-expanded={openPaperMenuId === paper.id}
+                      aria-haspopup="menu"
                       onClick={() =>
                         setOpenPaperMenuId((current) => (current === paper.id ? "" : paper.id))
                       }
                     >
-                      More
+                      <MoreIcon />
                     </button>
                     {openPaperMenuId === paper.id ? (
-                      <div className="paper-menu">
+                      <div className="paper-menu" role="menu" aria-label={`Actions for ${paper.title}`}>
                         <button
+                          role="menuitem"
                           type="button"
                           onClick={() => {
                             setOpenPaperMenuId("");
@@ -202,6 +208,7 @@ export default function LibraryView({
                         </button>
                         <button
                           className="paper-menu-danger"
+                          role="menuitem"
                           type="button"
                           onClick={() => {
                             setOpenPaperMenuId("");
@@ -359,6 +366,16 @@ function ArrowUpIcon() {
         fill="currentColor"
         d="M12 5a1 1 0 0 1 .71.29l5 5a1 1 0 1 1-1.42 1.42L13 8.41V19a1 1 0 1 1-2 0V8.41l-3.29 3.3a1 1 0 1 1-1.42-1.42l5-5A1 1 0 0 1 12 5Z"
       />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
     </svg>
   );
 }
