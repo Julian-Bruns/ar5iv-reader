@@ -156,6 +156,15 @@ Before sending the link to friends, test:
 3. Delete a paper on Device A and confirm Device B removes it after sync.
 4. Close both apps, reopen both, and confirm sync still works without re-pairing.
 5. Import a backup on one device and confirm it syncs to the other.
+6. Upgrade from the previous production build with a populated offline library and confirm the library stays intact without refetching papers.
+
+## Upgrade Compatibility
+
+- Keep the production origin stable so the installed PWA stays one app entry instead of creating a second install.
+- Treat the manifest identity as frozen: `id`, `scope`, and `start_url` should remain `/` unless you are planning a deliberate breaking migration.
+- Full backup restore is merge-based, so importing an older backup should not overwrite newer local papers or deletion tombstones.
+- URL restore is the last-resort recovery path because it refetches papers and may use mobile data.
+- Version changes should update the app shell and local metadata only. They should not automatically refetch saved papers.
 
 ## Backups
 
@@ -163,7 +172,7 @@ Before sending the link to friends, test:
 - `Import Backup` merges that backup into the current library using per-paper revision metadata.
 - `Export URLs` downloads a lightweight recovery manifest of saved paper URLs and metadata.
 - `Import URLs` refetches those papers and rebuilds the local library without requiring an account or server snapshot.
-- `Keep Recovery File Updated` is a Chromium-only option that mirrors the URL manifest to a user-chosen JSON file outside browser-managed storage.
+- `Keep Recovery File Updated` is a Chromium-only option that mirrors the full backup JSON to a user-chosen file outside browser-managed storage.
 - `Export HTML` still downloads the raw saved HTML for a single paper.
 
 ## Routes

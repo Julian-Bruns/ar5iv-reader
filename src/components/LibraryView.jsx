@@ -9,11 +9,21 @@ export default function LibraryView({
   receiveMessage,
   defaultInput,
   backupState,
+  recoveryState,
+  recoveryActions,
+  transitionState,
+  showUpdateBanner,
   deviceIdentity,
   pairedDevices,
   nearbyState,
   pairRouteInviteId,
+  hasReadableBackupFile,
+  hasOnlinePairedDevices,
+  appVersion,
   onChooseBackupFile,
+  onApplyUpdate,
+  onRestoreMirroredBackup,
+  onDismissRecovery,
   onCreateInvite,
   onCloseInvite,
   onJoinInvite,
@@ -29,6 +39,7 @@ export default function LibraryView({
   onDeletePaper,
   onDownloadBackup,
   onRestoreBackup,
+  onRestoreUrls,
   formatPairSyncStatus
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
@@ -36,10 +47,37 @@ export default function LibraryView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sortDirection, setSortDirection] = useState("desc");
   const [openPaperMenuId, setOpenPaperMenuId] = useState("");
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
 
   useEffect(() => {
     setInputValue(defaultInput || "");
   }, [defaultInput]);
+
+  useEffect(() => {
+    if (!openPaperMenuId) {
+      return undefined;
+    }
+
+    const handleDocumentClick = (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".paper-menu-shell")) {
+        return;
+      }
+
+      setOpenPaperMenuId("");
+    };
+
+    document.addEventListener("click", handleDocumentClick);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick);
+    };
+  }, [openPaperMenuId]);
+
+  useEffect(() => {
+    if (!showUpdateBanner) {
+      setUpdateBannerDismissed(false);
+    }
+  }, [showUpdateBanner]);
 
   const normalizedQuery = libraryQuery.trim().toLowerCase();
   const sortedPapers = [...papers].sort((left, right) => {
@@ -74,6 +112,91 @@ export default function LibraryView({
             <SettingsIcon />
           </button>
         </header>
+
+        {showUpdateBanner && !updateBannerDismissed ? (
+          <section className="banner banner--notice">
+            <div>
+              <p>
+                Update ready for ar5iv Reader {appVersion}. Reload when convenient to switch to the
+                latest app shell.
+              </p>
+            </div>
+            <div className="banner-actions">
+              <button className="primary-button" type="button" onClick={onApplyUpdate}>
+                Reload now
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setUpdateBannerDismissed(true)}
+              >
+                Later
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {recoveryState?.status === "suspicious" ? (
+          <section className="card recovery-card">
+            <div className="section-heading section-heading--compact">
+              <h2>Library Recovery</h2>
+              <p>
+                This upgrade opened with an empty library even though the previous install had{" "}
+                {transitionState?.previous?.lastKnownPaperCount || 0} saved papers.
+              </p>
+            </div>
+            <p className="status-line status-line--warn">
+              Local restore paths come first. URL restore is last resort because it refetches papers
+              and may use mobile data.
+            </p>
+            <p className="paper-meta">
+              Recommended order: {formatRecoveryActions(recoveryActions)}
+            </p>
+            <div className="setup-actions">
+              {hasReadableBackupFile ? (
+                <button className="primary-button" type="button" onClick={onRestoreMirroredBackup}>
+                  Restore Saved Backup File
+                </button>
+              ) : null}
+              {hasOnlinePairedDevices ? (
+                <button className="ghost-button" type="button" onClick={onSyncNow}>
+                  Sync From Nearby Device
+                </button>
+              ) : null}
+              <label className="ghost-button upload-button">
+                Restore Local Backup
+                <input
+                  type="file"
+                  accept="application/json"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) {
+                      onRestoreBackup(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              <label className="ghost-button upload-button">
+                Restore From URLs
+                <input
+                  type="file"
+                  accept="application/json"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) {
+                      onRestoreUrls(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              <button className="ghost-button ghost-button--subtle" type="button" onClick={onDismissRecovery}>
+                Dismiss
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <section className="card form-card">
           <div className="section-heading">
@@ -255,14 +378,17 @@ export default function LibraryView({
                 <section className="tools-subsection">
                   <div className="section-heading section-heading--compact">
                     <h2>Backup</h2>
-                    <p>Download one backup file now, or keep one selected file updated here.</p>
+                    <p>
+                      Download one local backup now, keep one selected backup file updated here, or
+                      restore from a URL list only when refetching is unavoidable.
+                    </p>
                   </div>
                   <div className="setup-actions">
                     <button className="primary-button" type="button" onClick={onDownloadBackup}>
                       Download Backup
                     </button>
                     <label className="ghost-button upload-button">
-                      {backupImporting ? "Restoring…" : "Restore Backup"}
+                      {backupImporting ? "Restoring…" : "Restore Local Backup"}
                       <input
                         type="file"
                         accept="application/json"
@@ -275,6 +401,20 @@ export default function LibraryView({
                         }}
                       />
                     </label>
+                    <label className="ghost-button upload-button">
+                      {backupImporting ? "Restoring…" : "Restore From URLs"}
+                      <input
+                        type="file"
+                        accept="application/json"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          if (file) {
+                            onRestoreUrls(file);
+                          }
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
                     {backupState.supported ? (
                       <button className="ghost-button" type="button" onClick={onChooseBackupFile}>
                         {backupState.enabled ? "Update Backup File" : "Keep Backup File Updated"}
@@ -282,6 +422,10 @@ export default function LibraryView({
                     ) : null}
                   </div>
                   <p className="status-line">{formatBackupStatus(backupState, papers)}</p>
+                  <p className="paper-meta">
+                    Restore Local Backup is fully local and avoids network use. Restore From URLs may
+                    refetch papers from arXiv.
+                  </p>
                   {backupState.enabled && backupState.lastWrittenAt ? (
                     <p className="paper-meta">
                       {backupState.filename || "Selected backup file"} updated{" "}
@@ -319,6 +463,26 @@ export default function LibraryView({
       ) : null}
     </>
   );
+}
+
+function formatRecoveryActions(actions) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action) => {
+      if (action === "backup-file") {
+        return "saved backup file";
+      }
+      if (action === "nearby-sync") {
+        return "nearby sync";
+      }
+      if (action === "backup-upload") {
+        return "manual backup upload";
+      }
+      if (action === "url-manifest") {
+        return "URL restore";
+      }
+      return action;
+    })
+    .join(" -> ");
 }
 
 function formatBackupStatus(backupState, papers) {

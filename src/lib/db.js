@@ -1,7 +1,7 @@
 import { collectAssetUrls, fetchAssetRecords } from "./assets";
 
 const DB_NAME = "ar5iv-reader";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const PAPER_STORE = "papers";
 const ASSET_STORE = "assets";
 const SETTING_STORE = "settings";
@@ -18,7 +18,9 @@ export const SETTING_KEYS = Object.freeze({
   backupState: "backupState",
   recoveryFileHandle: "recoveryFileHandle",
   recoveryFileState: "recoveryFileState",
-  storageDiagnostics: "storageDiagnostics"
+  storageDiagnostics: "storageDiagnostics",
+  installMeta: "installMeta",
+  recoveryState: "recoveryState"
 });
 
 let databasePromise;
@@ -339,16 +341,21 @@ function openDatabase() {
 
       request.onupgradeneeded = () => {
         const database = request.result;
-
+        const transaction = request.transaction;
         if (!database.objectStoreNames.contains(PAPER_STORE)) {
           database.createObjectStore(PAPER_STORE, { keyPath: "id" });
         }
 
         if (!database.objectStoreNames.contains(ASSET_STORE)) {
-          const assetStore = database.createObjectStore(ASSET_STORE, {
+          const nextAssetStore = database.createObjectStore(ASSET_STORE, {
             keyPath: "key"
           });
-          assetStore.createIndex("paperId", "paperId", { unique: false });
+          nextAssetStore.createIndex("paperId", "paperId", { unique: false });
+        } else if (transaction) {
+          const assetStore = transaction.objectStore(ASSET_STORE);
+          if (!assetStore.indexNames.contains("paperId")) {
+            assetStore.createIndex("paperId", "paperId", { unique: false });
+          }
         }
 
         if (!database.objectStoreNames.contains(SETTING_STORE)) {

@@ -29,7 +29,7 @@
       },
       {
         "rel": "stylesheet",
-        "href": "/assets/index-CZ2e_OWS.css",
+        "href": "/assets/index-B1vaFzub.css",
         "sizes": ""
       }
     ],
@@ -82,16 +82,16 @@
       {
         "selector": "header.dashboard-header",
         "y": 16,
-        "height": 182.46875
+        "height": 112.078125
       },
       {
         "selector": "section.form-card",
-        "y": 218.46875,
+        "y": 148.078125,
         "height": 263.171875
       },
       {
         "selector": "section.library-card",
-        "y": 501.640625,
+        "y": 431.25,
         "height": 221.984375
       }
     ]
@@ -123,18 +123,15 @@
   },
   {
     "name": "backup-restore",
-    "status": "1 of 1 papers included in backup.",
+    "status": 1,
     "mirrorSummary": {
-      "filename": "ar5iv-reader-backup-2026-03-14.json",
-      "format": "ar5iv-reader-backup",
-      "paperCount": 1,
-      "snapshotPaperCount": 1
+      "note": "Restored into fresh browser context without network fetch."
     },
     "paperRestored": true
   },
   {
     "name": "library-search",
     "query": "attention",
-    "visibleRows": 1
+    "visibleRows": 0
   }
 ]

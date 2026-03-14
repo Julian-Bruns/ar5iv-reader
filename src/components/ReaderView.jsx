@@ -56,6 +56,26 @@ export default function ReaderView({
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
 
   useEffect(() => {
+    if (!showActionMenu) {
+      return undefined;
+    }
+
+    const handleDocumentClick = (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".reader-menu-shell")) {
+        return;
+      }
+
+      setShowActionMenu(false);
+    };
+
+    document.addEventListener("click", handleDocumentClick);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick);
+    };
+  }, [showActionMenu]);
+
+  useEffect(() => {
     if (!tabs?.length) {
       setDragState({ draggedKey: "", targetKey: "", placement: "before" });
     }

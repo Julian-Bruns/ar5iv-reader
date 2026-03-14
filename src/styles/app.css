@@ -584,6 +584,11 @@ input {
   gap: 0.7rem;
 }
 
+.recovery-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
 .status-line {
   margin: 0;
   color: rgba(44, 33, 29, 0.78);
@@ -1117,8 +1122,8 @@ input {
   contain-intrinsic-size: auto 960px;
 }
 
-.paper-body .ltx_title,
-.paper-body .ltx_title_document {
+.paper-body .ltx_title_document,
+.paper-body h1 {
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1.05;
   margin-bottom: 1rem;
@@ -1135,6 +1140,11 @@ input {
   margin-top: 1.8rem;
 }
 
+.paper-body .ltx_title_document,
+.paper-body .ltx_title_section,
+.paper-body .ltx_title_subsection,
+.paper-body .ltx_title_subsubsection,
+.paper-body .ltx_title_paragraph,
 .paper-body h1,
 .paper-body h2,
 .paper-body h3,
@@ -1142,6 +1152,35 @@ input {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   line-height: 1.15;
   margin: 1.8rem 0 0.9rem;
+}
+
+.paper-body .ltx_title_section,
+.paper-body h2 {
+  font-size: clamp(1rem, 2vw, 1.5rem);
+}
+
+.paper-body .ltx_title_subsection,
+.paper-body h3 {
+  font-size: clamp(0.95rem, 1.7vw, 1.35rem);
+}
+
+.paper-body .ltx_title_subsubsection,
+.paper-body .ltx_title_paragraph,
+.paper-body h4 {
+  font-size: clamp(0.9rem, 1.4vw, 1.15rem);
+}
+
+.paper-body .ltx_theorem > .ltx_title,
+.paper-body .ltx_proof > .ltx_title,
+.paper-body .ltx_abstract > .ltx_title,
+.paper-body .ltx_keywords > .ltx_title,
+.paper-body .ltx_classification > .ltx_title {
+  font-family: inherit;
+  font-size: 1em;
+  font-style: normal;
+  font-weight: 700;
+  line-height: inherit;
+  margin: 0 0 0.4rem;
 }
 
 .paper-body a {
