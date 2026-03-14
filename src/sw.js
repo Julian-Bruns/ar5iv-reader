@@ -1,20 +1,10 @@
-const CACHE_NAME = "ar5iv-reader-shell-v6";
-const CORE_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.webmanifest",
-  "/icons/favicon-32.png",
-  "/icons/apple-touch-icon.png",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/icon.svg",
-  "/icons/maskable.svg"
-];
+const BUILD_ID = "__APP_BUILD_ID__";
+const CACHE_NAME = `ar5iv-reader-shell-${BUILD_ID}`;
+const PRECACHE_URLS = __PRECACHE_URLS__;
 
 self.addEventListener("install", (event) => {
-  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_URLS)).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).catch(() => {})
   );
 });
 
@@ -33,21 +23,9 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type !== "PRECACHE_URLS") {
-    return;
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
   }
-
-  const sameOriginUrls = (event.data.urls || []).filter((value) => {
-    try {
-      return new URL(value, self.location.origin).origin === self.location.origin;
-    } catch {
-      return false;
-    }
-  });
-
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(sameOriginUrls)).catch(() => {})
-  );
 });
 
 self.addEventListener("fetch", (event) => {

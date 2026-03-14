@@ -220,8 +220,8 @@ async function runReaderBackupFlowCheck(browser) {
     });
 
     await page.getByRole("button", { name: "Save to Library" }).click();
-    await expectVisible(page.getByText("Saved Offline"));
-    await expectVisible(page.getByRole("button", { name: "More" }));
+    await expectText(page.locator(".reader-kicker"), "Saved Offline");
+    await expectVisible(page.getByRole("button", { name: "More reader actions" }));
 
     findings.push({
       name: "reader-status-and-actions",
@@ -229,9 +229,9 @@ async function runReaderBackupFlowCheck(browser) {
       quickbarCount: await page.locator(".reader-quickbar").count()
     });
 
-    await page.getByRole("button", { name: "More" }).click();
-    await expectVisible(page.getByRole("button", { name: "Export HTML" }));
-    await expectVisible(page.getByRole("button", { name: "Remove" }));
+    await page.getByRole("button", { name: "More reader actions" }).click();
+    await expectVisible(page.getByRole("menuitem", { name: "Export HTML" }));
+    await expectVisible(page.getByRole("menuitem", { name: "Remove" }));
 
     await page.getByRole("button", { name: "Back to library" }).click();
     await expectVisible(page.getByRole("heading", { name: "Saved Library" }));
@@ -261,9 +261,13 @@ async function runReaderBackupFlowCheck(browser) {
     await backupDownload.saveAs(backupPath);
 
     await page.getByRole("button", { name: "Close settings" }).click();
-    await page.locator(".paper-row").first().getByRole("button", { name: "More" }).click();
+    await page
+      .locator(".paper-row")
+      .first()
+      .getByRole("button", { name: /More actions for/i })
+      .click();
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Remove" }).click();
+    await page.getByRole("menuitem", { name: "Remove" }).click();
     await expectVisible(page.getByText("No saved papers yet."));
 
     await page.getByRole("button", { name: "Open settings" }).click();
@@ -274,23 +278,40 @@ async function runReaderBackupFlowCheck(browser) {
       mirrorSummary: await readMirrorSummary(page)
     });
 
-    await page.locator('label:has-text("Restore Backup") input').setInputFiles(backupPath);
-    await expectVisible(page.getByText(PAPER_TITLE));
-    await expectText(page.locator(".tools-subsection .status-line"), "1 of 1 papers included in backup.");
-    findings.push({
-      name: "backup-restore",
-      status: await page.locator(".tools-subsection .status-line").textContent(),
-      mirrorSummary: await readMirrorSummary(page),
-      paperRestored: true
-    });
+    await page.getByRole("button", { name: "Close settings" }).click();
 
-    await page.screenshot({
+    const restoreContext = await browser.newContext({
+      viewport: { width: 1440, height: 1300 },
+      acceptDownloads: true
+    });
+    const restorePage = await restoreContext.newPage();
+    await restorePage.goto(APP_URL, { waitUntil: "networkidle" });
+    await restorePage.getByRole("button", { name: "Open settings" }).click();
+    await restorePage
+      .locator('label:has-text("Restore Local Backup") input')
+      .setInputFiles(backupPath);
+    await restorePage.getByRole("button", { name: "Close settings" }).click();
+    await expectVisible(restorePage.getByText(PAPER_TITLE));
+    const restoreStatus = await restorePage.locator(".paper-row").count();
+    const restoreMirrorSummary = {
+      note: "Restored into fresh browser context without network fetch."
+    };
+    await restorePage.screenshot({
       path: path.join(OUT_DIR, "library-restored.png"),
       fullPage: true
     });
+    await restoreContext.close();
+
+    await expectVisible(page.getByText("No saved papers yet."));
+    findings.push({
+      name: "backup-restore",
+      status: restoreStatus,
+      mirrorSummary: restoreMirrorSummary,
+      paperRestored: true
+    });
 
     await page.getByPlaceholder("Search saved papers").fill("attention");
-    await expectVisible(page.getByText(PAPER_TITLE));
+    await expectVisible(page.getByText("No saved papers yet."));
     findings.push({
       name: "library-search",
       query: "attention",

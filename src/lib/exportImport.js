@@ -3,6 +3,8 @@ import {
   exportLibrarySnapshot,
   getPaper
 } from "./db";
+import { appVersion as defaultAppVersion, buildId as defaultBuildId } from "./appBuild";
+import { createEmptyLibrarySnapshot, mergeLibrarySnapshots } from "./librarySnapshot";
 import {
   buildUrlManifest,
   buildUrlManifestFingerprint,
@@ -11,7 +13,7 @@ import {
 } from "./urlManifest";
 
 const BACKUP_FORMAT = "ar5iv-reader-backup";
-const BACKUP_SCHEMA_VERSION = 1;
+const BACKUP_SCHEMA_VERSION = 2;
 
 export async function exportPaperHtml(paperId) {
   const record = await getPaper(paperId);
@@ -24,58 +26,97 @@ export async function exportPaperHtml(paperId) {
   });
 }
 
-export async function createLibraryBackup(appVersion = "") {
+export async function createLibraryBackup(
+  appVersion = defaultAppVersion,
+  buildId = defaultBuildId
+) {
   const snapshot = await exportLibrarySnapshot();
-  const manifest = buildUrlManifest(
-    (Array.isArray(snapshot.papers) ? snapshot.papers : []).filter(
-      (paper) => !Number(paper?.deletedAtMs || 0)
-    ),
-    appVersion
+  const papers = (Array.isArray(snapshot.papers) ? snapshot.papers : []).filter(
+    (paper) => !Number(paper?.deletedAtMs || 0)
   );
+  const manifest = buildUrlManifest(papers, appVersion);
+  const fingerprint = buildBackupFingerprint(manifest.papers);
 
   return {
-    fingerprint: buildBackupFingerprint(manifest.papers),
+    fingerprint,
     payload: {
       format: BACKUP_FORMAT,
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       appVersion: String(appVersion || "").trim(),
+      buildId: String(buildId || "").trim(),
       origin: typeof window === "undefined" ? "" : window.location.origin,
+      paperCount: papers.length,
+      fingerprint,
       librarySnapshot: snapshot,
       manifest
     }
   };
 }
 
-export async function exportLibraryBackup(appVersion = "") {
-  const { payload } = await createLibraryBackup(appVersion);
+export async function exportLibraryBackup(appVersion = defaultAppVersion, buildId = defaultBuildId) {
+  const { payload } = await createLibraryBackup(appVersion, buildId);
   return new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json;charset=utf-8"
   });
 }
 
+export async function inspectImportFile(file) {
+  return inspectImportContents(await file.text());
+}
+
+export function inspectImportContents(contents) {
+  const text = String(contents || "");
+
+  try {
+    const parsed = JSON.parse(text);
+
+    if (isUnifiedBackupPayload(parsed)) {
+      return {
+        kind: "snapshot",
+        source: "backup",
+        snapshot: parsed.librarySnapshot,
+        payload: parsed
+      };
+    }
+
+    if (looksLikeLibrarySnapshot(parsed)) {
+      return {
+        kind: "snapshot",
+        source: "snapshot",
+        snapshot: parsed,
+        payload: parsed
+      };
+    }
+  } catch {
+    // Fall back to URL-manifest detection below.
+  }
+
+  return {
+    kind: "manifest",
+    source: "manifest",
+    manifest: parseUrlManifest(text)
+  };
+}
+
 export async function importLibraryBackup(file, options = {}) {
-  const contents = await file.text();
-  const parsed = JSON.parse(contents);
+  const contents = "contents" in options ? options.contents : await file.text();
+  const parsedImport = inspectImportContents(contents);
 
-  if (isUnifiedBackupPayload(parsed)) {
-    await applyLibrarySnapshot(parsed.librarySnapshot);
+  if (parsedImport.kind === "snapshot") {
+    const currentSnapshot = options.currentSnapshot || (await exportLibrarySnapshot());
+    const mergedSnapshot = mergeLibrarySnapshots(
+      currentSnapshot || createEmptyLibrarySnapshot(),
+      parsedImport.snapshot
+    );
+    await applyLibrarySnapshot(mergedSnapshot);
     return {
       kind: "snapshot",
-      paperCount: countVisiblePapers(parsed.librarySnapshot?.papers)
+      paperCount: countVisiblePapers(mergedSnapshot?.papers)
     };
   }
 
-  if (looksLikeLibrarySnapshot(parsed)) {
-    await applyLibrarySnapshot(parsed);
-    return {
-      kind: "snapshot",
-      paperCount: countVisiblePapers(parsed?.papers)
-    };
-  }
-
-  const manifest = parseUrlManifest(contents);
-  const result = await restoreFromUrlManifest(manifest, options);
+  const result = await restoreFromUrlManifest(parsedImport.manifest, options);
   return {
     kind: "manifest",
     ...result
@@ -105,7 +146,8 @@ function isUnifiedBackupPayload(value) {
   return (
     value &&
     value.format === BACKUP_FORMAT &&
-    Number(value.schemaVersion) === BACKUP_SCHEMA_VERSION &&
+    Number(value.schemaVersion) >= 1 &&
+    Number(value.schemaVersion) <= BACKUP_SCHEMA_VERSION &&
     value.librarySnapshot &&
     typeof value.librarySnapshot === "object"
   );

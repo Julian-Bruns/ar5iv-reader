@@ -38,6 +38,19 @@ export async function writeBackupFile(handle, payload) {
   };
 }
 
+export async function readBackupFile(handle) {
+  if (!handle?.getFile) {
+    throw new Error("Backup file handle is unavailable.");
+  }
+
+  return handle.getFile();
+}
+
+export async function readBackupText(handle) {
+  const file = await readBackupFile(handle);
+  return file.text();
+}
+
 export async function getBackupFilePermission(handle) {
   if (!handle?.queryPermission) {
     return handle?.createWritable ? "granted" : "unknown";

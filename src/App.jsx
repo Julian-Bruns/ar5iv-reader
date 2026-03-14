@@ -19,8 +19,10 @@ import {
   downloadBlob,
   exportLibraryBackup,
   exportPaperHtml,
-  importLibraryBackup
+  importLibraryBackup,
+  inspectImportFile
 } from "./lib/exportImport";
+import { appVersion as APP_VERSION, buildId as BUILD_ID } from "./lib/appBuild";
 import {
   buildPdfFallbackPaper,
   fetchPaperAccessInfoById,
@@ -54,6 +56,7 @@ import {
   createBackupFileHandle,
   getBackupFilePermission,
   isBackupFileSupported,
+  readBackupFile,
   writeBackupFile
 } from "./lib/recoveryFile";
 import {
@@ -61,6 +64,14 @@ import {
   reorderReaderTabs,
   upsertReaderTab
 } from "./lib/readerTabs";
+import { activateServiceWorkerUpdate, subscribeServiceWorker } from "./lib/serviceWorker";
+import {
+  createInstallMeta,
+  evaluateUpgradeTransition,
+  normalizeInstallMeta,
+  normalizeRecoveryState,
+  prioritizeRecoveryActions
+} from "./lib/transition";
 
 function normalizeNearbySignalUrl(value) {
   const rawValue = String(value || "").trim();
@@ -91,7 +102,6 @@ function normalizeNearbySignalUrl(value) {
 }
 
 const NEARBY_SIGNAL_URL = normalizeNearbySignalUrl(import.meta.env.VITE_NEARBY_SIGNAL_URL);
-const APP_VERSION = "0.3.0";
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 
 export default function App() {
@@ -106,8 +116,16 @@ export default function App() {
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
   const [openFromArxivHelpDismissed, setOpenFromArxivHelpDismissed] = useState(false);
   const [backupState, setBackupState] = useState(createDefaultBackupState());
+  const [serviceWorkerState, setServiceWorkerState] = useState({
+    supported: typeof navigator !== "undefined" && "serviceWorker" in navigator,
+    status: "idle"
+  });
   const [deviceIdentity, setDeviceIdentity] = useState(null);
   const [pairedDevices, setPairedDevices] = useState([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [installMeta, setInstallMeta] = useState(null);
+  const [recoveryState, setRecoveryState] = useState(createDefaultRecoveryState());
+  const [transitionState, setTransitionState] = useState(createDefaultTransitionState());
   const [nearbyState, setNearbyState] = useState({
     relayStatus: NEARBY_SIGNAL_URL ? "idle" : "unavailable",
     summaryStatus: NEARBY_SIGNAL_URL ? "" : "relay-unavailable",
@@ -144,6 +162,15 @@ export default function App() {
     .filter(Boolean)
     .sort();
   const pairedPeerIdsKey = pairedPeerIds.join(",");
+  const hasReadableBackupFile =
+    Boolean(backupFileHandleRef.current) && backupState.permission === "granted";
+  const onlinePairedPeers = pairedPeerIds.filter((peerId) => nearbyState.onlinePeerIds.includes(peerId));
+  const recoveryActions = prioritizeRecoveryActions({
+    hasReadableBackupFile,
+    hasOnlinePairedDevices: onlinePairedPeers.length > 0
+  });
+  const showUpdateBanner =
+    serviceWorkerState.status === "update-available" && !saving && !backupImporting;
 
   useEffect(() => {
     openTabsRef.current = openTabs;
@@ -163,6 +190,8 @@ export default function App() {
       void flushPendingNearbySync();
     }
   }, [saving]);
+
+  useEffect(() => subscribeServiceWorker(setServiceWorkerState), []);
 
   useEffect(() => {
     void refreshLibrary();
@@ -242,6 +271,59 @@ export default function App() {
 
     void mirrorBackupFile(library.papers);
   }, [backupState.enabled, library.loading, libraryFingerprint]);
+
+  useEffect(() => {
+    if (library.loading || !settingsLoaded) {
+      return;
+    }
+
+    const nextTransition = evaluateUpgradeTransition({
+      previousInstallMeta: installMeta,
+      currentAppVersion: APP_VERSION,
+      currentBuildId: BUILD_ID,
+      currentPaperCount: library.papers.length,
+      currentLibraryFingerprint: libraryFingerprint
+    });
+    setTransitionState(nextTransition);
+
+    if (nextTransition.status === "suspicious" && recoveryState.status !== "ignored") {
+      const nextRecoveryState = {
+        status: "suspicious",
+        reason: nextTransition.reason,
+        detectedAt: recoveryState.detectedAt || new Date().toISOString(),
+        dismissedAt: ""
+      };
+      if (!recoveryStatesEqual(recoveryState, nextRecoveryState)) {
+        void persistRecoveryState(nextRecoveryState);
+      }
+    } else if (library.papers.length > 0 && recoveryState.status !== "idle") {
+      void persistRecoveryState(createDefaultRecoveryState());
+    }
+
+    const nextInstallMeta = createInstallMeta({
+      appVersion: APP_VERSION,
+      buildId: BUILD_ID,
+      paperCount: library.papers.length,
+      libraryFingerprint,
+      seenAt:
+        installMeta?.lastSeenAppVersion === APP_VERSION &&
+        installMeta?.lastSeenBuildId === BUILD_ID &&
+        installMeta?.lastKnownPaperCount === library.papers.length &&
+        installMeta?.lastKnownLibraryFingerprint === libraryFingerprint
+          ? installMeta?.lastSeenAt || ""
+          : new Date().toISOString()
+    });
+    if (!installMetasEqual(installMeta, nextInstallMeta)) {
+      void persistInstallMeta(nextInstallMeta);
+    }
+  }, [
+    settingsLoaded,
+    library.loading,
+    library.papers.length,
+    libraryFingerprint,
+    installMeta,
+    recoveryState
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -597,6 +679,20 @@ export default function App() {
     return normalized;
   }
 
+  async function persistInstallMeta(value) {
+    const normalized = createInstallMeta(value);
+    setInstallMeta(normalized);
+    await setSetting(SETTING_KEYS.installMeta, normalized);
+    return normalized;
+  }
+
+  async function persistRecoveryState(value) {
+    const normalized = normalizeRecoveryState(value);
+    setRecoveryState(normalized);
+    await setSetting(SETTING_KEYS.recoveryState, normalized);
+    return normalized;
+  }
+
   async function dismissOpenFromArxivHelp() {
     setOpenFromArxivHelpDismissed(true);
     try {
@@ -662,7 +758,7 @@ export default function App() {
     }
 
     try {
-      const { fingerprint, payload } = await createLibraryBackup(APP_VERSION);
+      const { fingerprint, payload } = await createLibraryBackup(APP_VERSION, BUILD_ID);
       const writeResult = await writeBackupFile(handle, payload);
       backupFingerprintRef.current = fingerprint;
       await persistBackupState({
@@ -707,7 +803,9 @@ export default function App() {
         storedBackupState,
         storedBackupFileHandle,
         storedRecoveryFileState,
-        storedRecoveryFileHandle
+        storedRecoveryFileHandle,
+        storedInstallMeta,
+        storedRecoveryState
       ] = await Promise.all([
         getSetting(SETTING_KEYS.openFromArxivHelpDismissed),
         getSetting(SETTING_KEYS.pdfFallbackNoticeEnabled),
@@ -715,7 +813,9 @@ export default function App() {
         getSetting(SETTING_KEYS.backupState),
         getSetting(SETTING_KEYS.backupFileHandle),
         getSetting(SETTING_KEYS.recoveryFileState),
-        getSetting(SETTING_KEYS.recoveryFileHandle)
+        getSetting(SETTING_KEYS.recoveryFileHandle),
+        getSetting(SETTING_KEYS.installMeta),
+        getSetting(SETTING_KEYS.recoveryState)
       ]);
 
       const locallyDismissed = readOpenFromArxivHelpDismissedFlag();
@@ -728,6 +828,8 @@ export default function App() {
       );
       backupFingerprintRef.current = nextBackupState.lastMirroredFingerprint;
       setBackupState(nextBackupState);
+      setInstallMeta(storedInstallMeta?.value || null);
+      setRecoveryState(normalizeRecoveryState(storedRecoveryState?.value));
       if (!storedBackupState && storedRecoveryFileState?.value) {
         await setSetting(SETTING_KEYS.backupState, nextBackupState);
       }
@@ -740,6 +842,8 @@ export default function App() {
       void triggerNearbySync("startup");
     } catch (error) {
       console.error("Settings load failed", error);
+    } finally {
+      setSettingsLoaded(true);
     }
   }
 
@@ -971,7 +1075,7 @@ export default function App() {
 
   async function handleExportLibrary() {
     try {
-      const blob = await exportLibraryBackup(APP_VERSION);
+      const blob = await exportLibraryBackup(APP_VERSION, BUILD_ID);
       downloadBlob(blob, buildBackupFilename());
       showToast("Downloaded backup.");
     } catch (error) {
@@ -979,7 +1083,28 @@ export default function App() {
     }
   }
 
-  async function handleImportLibrary(file) {
+  async function importLibraryFile(file, { expectedKind = "any" } = {}) {
+    const importDetails = await inspectImportFile(file);
+
+    if (expectedKind === "snapshot" && importDetails.kind !== "snapshot") {
+      showToast("That file only contains URLs. Use Restore from URLs instead.");
+      return false;
+    }
+
+    if (expectedKind === "manifest" && importDetails.kind !== "manifest") {
+      showToast("That file contains a full local backup. Use Restore Local Backup instead.");
+      return false;
+    }
+
+    if (
+      importDetails.kind === "manifest" &&
+      !window.confirm(
+        "This URL recovery file will refetch papers from arXiv and may use mobile data. Continue?"
+      )
+    ) {
+      return false;
+    }
+
     setBackupImporting(true);
     try {
       await ensurePersistentStorage();
@@ -1000,10 +1125,56 @@ export default function App() {
       } else {
         showToast(`Restored backup with ${result.paperCount} papers.`);
       }
+      return true;
     } catch (error) {
       showToast(stringifyError(error));
+      return false;
     } finally {
       setBackupImporting(false);
+    }
+  }
+
+  async function handleImportLibrary(file) {
+    return importLibraryFile(file, {
+      expectedKind: "snapshot"
+    });
+  }
+
+  async function handleImportUrls(file) {
+    return importLibraryFile(file, {
+      expectedKind: "manifest"
+    });
+  }
+
+  async function handleRestoreMirroredBackup() {
+    const handle = backupFileHandleRef.current;
+    if (!handle) {
+      showToast("No mirrored backup file is selected on this device.");
+      return;
+    }
+
+    try {
+      const file = await readBackupFile(handle);
+      await importLibraryFile(file, {
+        expectedKind: "snapshot"
+      });
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  async function dismissRecoveryBanner() {
+    await persistRecoveryState({
+      status: "ignored",
+      reason: recoveryState.reason,
+      detectedAt: recoveryState.detectedAt || new Date().toISOString(),
+      dismissedAt: new Date().toISOString()
+    });
+  }
+
+  function handleApplyUpdate() {
+    if (!activateServiceWorkerUpdate()) {
+      showToast("No app update is ready yet.");
     }
   }
 
@@ -1665,11 +1836,21 @@ export default function App() {
           receiveMessage={receiveMessage}
           defaultInput={defaultInput}
           backupState={backupState}
+          recoveryState={recoveryState}
+          recoveryActions={recoveryActions}
+          transitionState={transitionState}
+          showUpdateBanner={showUpdateBanner}
           deviceIdentity={deviceIdentity}
           pairedDevices={pairedDevices}
           nearbyState={nearbyState}
           pairRouteInviteId={route.pairInviteId}
+          hasReadableBackupFile={hasReadableBackupFile}
+          hasOnlinePairedDevices={onlinePairedPeers.length > 0}
+          appVersion={APP_VERSION}
           onChooseBackupFile={handleChooseBackupFile}
+          onApplyUpdate={handleApplyUpdate}
+          onRestoreMirroredBackup={handleRestoreMirroredBackup}
+          onDismissRecovery={dismissRecoveryBanner}
           onCreateInvite={createInvite}
           onCloseInvite={closeInvite}
           onJoinInvite={handleJoinInvite}
@@ -1685,6 +1866,7 @@ export default function App() {
           onDeletePaper={handleDeletePaper}
           onDownloadBackup={handleExportLibrary}
           onRestoreBackup={handleImportLibrary}
+          onRestoreUrls={handleImportUrls}
           formatPairSyncStatus={formatPairSyncStatus}
         />
       )}
@@ -1850,6 +2032,25 @@ function createDefaultBackupState() {
   };
 }
 
+function createDefaultRecoveryState() {
+  return {
+    status: "idle",
+    reason: "",
+    detectedAt: "",
+    dismissedAt: ""
+  };
+}
+
+function createDefaultTransitionState() {
+  return {
+    status: "idle",
+    reason: "",
+    buildChanged: false,
+    previous: createInstallMeta(),
+    current: createInstallMeta()
+  };
+}
+
 function normalizeBackupState(value) {
   return {
     enabled: Boolean(value?.enabled),
@@ -1906,4 +2107,12 @@ function stringifyError(error) {
   }
 
   return String(error);
+}
+
+function installMetasEqual(left, right) {
+  return JSON.stringify(normalizeInstallMeta(left)) === JSON.stringify(normalizeInstallMeta(right));
+}
+
+function recoveryStatesEqual(left, right) {
+  return JSON.stringify(normalizeRecoveryState(left)) === JSON.stringify(normalizeRecoveryState(right));
 }
