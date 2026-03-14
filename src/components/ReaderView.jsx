@@ -12,7 +12,6 @@ export default function ReaderView({
   onCloseTab,
   onReorderTabs,
   onBack,
-  onDisableFallbackNotice,
   onSave,
   onExport,
   onDelete,
@@ -240,15 +239,21 @@ export default function ReaderView({
         </div>
 
         <div className="reader-actions">
-          <button className="ghost-button" type="button" onClick={onBack}>
-            Back to Library
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Back to library"
+            title="Back to library"
+            onClick={onBack}
+          >
+            <BackIcon />
           </button>
           {paper?.mode === "session" && paper?.view === "html" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
             </button>
           ) : null}
-          {shouldShowActionMenu(paper, fallbackNoticeEnabled) ? (
+          {shouldShowActionMenu(paper) ? (
             <div className="reader-menu-shell">
               <button
                 className="ghost-button"
@@ -288,18 +293,6 @@ export default function ReaderView({
                       Remove
                     </button>
                   ) : null}
-                  {paper?.notice && fallbackNoticeEnabled ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDismissedNotice(true);
-                        setShowActionMenu(false);
-                        onDisableFallbackNotice();
-                      }}
-                    >
-                      Don&apos;t show this notice again
-                    </button>
-                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -327,8 +320,8 @@ export default function ReaderView({
         </div>
       ) : null}
 
-      <section className="reader-frame">
-        <div className="reader-surface">
+      <section className={`reader-frame${paper?.view === "pdf" ? " reader-frame--pdf" : ""}`}>
+        <div className={`reader-surface${paper?.view === "pdf" ? " reader-surface--pdf" : ""}`}>
           {paper?.view === "pdf" && paper?.pdfUrl ? (
             <iframe
               className="pdf-viewer"
@@ -516,10 +509,14 @@ function getReaderStatusLabel(paper) {
   return "Skim";
 }
 
-function shouldShowActionMenu(paper, fallbackNoticeEnabled) {
-  return Boolean(
-    (paper?.view === "pdf" && paper?.pdfUrl) ||
-      paper?.mode === "saved" ||
-      (paper?.notice && fallbackNoticeEnabled)
+function shouldShowActionMenu(paper) {
+  return Boolean((paper?.view === "pdf" && paper?.pdfUrl) || paper?.mode === "saved");
+}
+
+function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
+    </svg>
   );
 }

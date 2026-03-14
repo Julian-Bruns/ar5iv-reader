@@ -1,8 +1,12 @@
-const CACHE_NAME = "ar5iv-reader-shell-v5";
+const CACHE_NAME = "ar5iv-reader-shell-v6";
 const CORE_URLS = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
+  "/icons/favicon-32.png",
+  "/icons/apple-touch-icon.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
   "/icons/icon.svg",
   "/icons/maskable.svg"
 ];

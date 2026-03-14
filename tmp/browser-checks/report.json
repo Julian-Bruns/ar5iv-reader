@@ -1,5 +1,57 @@
 [
   {
+    "name": "app-icons",
+    "links": [
+      {
+        "rel": "icon",
+        "href": "/icons/favicon-32.png",
+        "sizes": "32x32"
+      },
+      {
+        "rel": "shortcut icon",
+        "href": "/icons/favicon-32.png",
+        "sizes": ""
+      },
+      {
+        "rel": "icon",
+        "href": "/icons/icon.svg",
+        "sizes": ""
+      },
+      {
+        "rel": "apple-touch-icon",
+        "href": "/icons/apple-touch-icon.png",
+        "sizes": "180x180"
+      },
+      {
+        "rel": "manifest",
+        "href": "/manifest.webmanifest",
+        "sizes": ""
+      },
+      {
+        "rel": "stylesheet",
+        "href": "/assets/index-CZ2e_OWS.css",
+        "sizes": ""
+      }
+    ],
+    "responses": [
+      {
+        "href": "/icons/favicon-32.png",
+        "ok": true,
+        "contentType": "image/png"
+      },
+      {
+        "href": "/icons/icon.svg",
+        "ok": true,
+        "contentType": "image/svg+xml"
+      },
+      {
+        "href": "/icons/apple-touch-icon.png",
+        "ok": true,
+        "contentType": "image/png"
+      }
+    ]
+  },
+  {
     "name": "desktop-main-order",
     "order": [
       {
@@ -53,7 +105,7 @@
     "name": "backup-mirror-after-save",
     "status": "1 of 1 papers included in backup.",
     "mirrorSummary": {
-      "filename": "ar5iv-reader-backup-2026-03-13.json",
+      "filename": "ar5iv-reader-backup-2026-03-14.json",
       "format": "ar5iv-reader-backup",
       "paperCount": 1,
       "snapshotPaperCount": 1
@@ -63,7 +115,7 @@
     "name": "backup-mirror-after-delete",
     "status": "0 of 0 papers included in backup.",
     "mirrorSummary": {
-      "filename": "ar5iv-reader-backup-2026-03-13.json",
+      "filename": "ar5iv-reader-backup-2026-03-14.json",
       "format": "ar5iv-reader-backup",
       "paperCount": 0,
       "snapshotPaperCount": 0
@@ -73,7 +125,7 @@
     "name": "backup-restore",
     "status": "1 of 1 papers included in backup.",
     "mirrorSummary": {
-      "filename": "ar5iv-reader-backup-2026-03-13.json",
+      "filename": "ar5iv-reader-backup-2026-03-14.json",
       "format": "ar5iv-reader-backup",
       "paperCount": 1,
       "snapshotPaperCount": 1

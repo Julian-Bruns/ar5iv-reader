@@ -47,6 +47,8 @@ async function runDesktopLayoutCheck(browser) {
       page.getByText("Paste an arXiv URL, or use the bookmarklet found in settings.")
     );
 
+    findings.push(await readIconConfiguration(page));
+
     const order = await readVerticalOrder(page, [
       "header.dashboard-header",
       "section.form-card",
@@ -231,7 +233,7 @@ async function runReaderBackupFlowCheck(browser) {
     await expectVisible(page.getByRole("button", { name: "Export HTML" }));
     await expectVisible(page.getByRole("button", { name: "Remove" }));
 
-    await page.getByRole("button", { name: "Back to Library" }).click();
+    await page.getByRole("button", { name: "Back to library" }).click();
     await expectVisible(page.getByRole("heading", { name: "Saved Library" }));
     await expectVisible(page.getByText(PAPER_TITLE));
 
@@ -375,6 +377,62 @@ async function readMirrorSummary(page) {
         : -1
     };
   });
+}
+
+async function readIconConfiguration(page) {
+  const result = await page.evaluate(async () => {
+    const links = [...document.querySelectorAll('link[rel][href]')].map((element) => ({
+      rel: element.rel,
+      href: new URL(element.getAttribute("href"), window.location.origin).pathname,
+      sizes: element.getAttribute("sizes") || ""
+    }));
+
+    const iconUrls = [
+      "/icons/favicon-32.png",
+      "/icons/icon.svg",
+      "/icons/apple-touch-icon.png"
+    ];
+    const responses = await Promise.all(
+      iconUrls.map(async (href) => {
+        const response = await fetch(href);
+        return {
+          href,
+          ok: response.ok,
+          contentType: response.headers.get("content-type") || ""
+        };
+      })
+    );
+
+    return {
+      name: "app-icons",
+      links,
+      responses
+    };
+  });
+
+  const requiredLinks = [
+    { rel: "icon", href: "/icons/favicon-32.png" },
+    { rel: "shortcut icon", href: "/icons/favicon-32.png" },
+    { rel: "icon", href: "/icons/icon.svg" },
+    { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" }
+  ];
+
+  for (const requiredLink of requiredLinks) {
+    const present = result.links.some(
+      (link) => link.rel === requiredLink.rel && link.href === requiredLink.href
+    );
+    if (!present) {
+      throw new Error(`Missing icon link: rel=${requiredLink.rel} href=${requiredLink.href}`);
+    }
+  }
+
+  for (const response of result.responses) {
+    if (!response.ok || !response.contentType.startsWith("image/")) {
+      throw new Error(`Icon asset failed to load: ${response.href} (${response.contentType})`);
+    }
+  }
+
+  return result;
 }
 
 async function expectVisible(locator) {

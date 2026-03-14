@@ -40,7 +40,7 @@ export function buildAr5ivUrl(id) {
 }
 
 export function buildArxivHtmlUrl(id) {
-  return `https://arxiv.org/html/${id}`;
+  return `https://arxiv.org/html/${id}#view=FitH`;
 }
 
 export function buildArxivPdfUrl(id) {

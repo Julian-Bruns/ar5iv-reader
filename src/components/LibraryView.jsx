@@ -243,67 +243,69 @@ export default function LibraryView({
               </button>
             </div>
 
-            <div className="settings-stack">
-              <section className="tools-subsection">
-                <div className="section-heading section-heading--compact">
-                  <h2>Backup</h2>
-                  <p>Download one backup file now, or keep one selected file updated here.</p>
-                </div>
-                <div className="setup-actions">
-                  <button className="primary-button" type="button" onClick={onDownloadBackup}>
-                    Download Backup
-                  </button>
-                  <label className="ghost-button upload-button">
-                    {backupImporting ? "Restoring…" : "Restore Backup"}
-                    <input
-                      type="file"
-                      accept="application/json"
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-                        if (file) {
-                          onRestoreBackup(file);
-                        }
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                  {backupState.supported ? (
-                    <button className="ghost-button" type="button" onClick={onChooseBackupFile}>
-                      {backupState.enabled ? "Update Backup File" : "Keep Backup File Updated"}
+            <div className="settings-modal-scroll">
+              <div className="settings-stack">
+                <section className="tools-subsection">
+                  <div className="section-heading section-heading--compact">
+                    <h2>Backup</h2>
+                    <p>Download one backup file now, or keep one selected file updated here.</p>
+                  </div>
+                  <div className="setup-actions">
+                    <button className="primary-button" type="button" onClick={onDownloadBackup}>
+                      Download Backup
                     </button>
+                    <label className="ghost-button upload-button">
+                      {backupImporting ? "Restoring…" : "Restore Backup"}
+                      <input
+                        type="file"
+                        accept="application/json"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          if (file) {
+                            onRestoreBackup(file);
+                          }
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    {backupState.supported ? (
+                      <button className="ghost-button" type="button" onClick={onChooseBackupFile}>
+                        {backupState.enabled ? "Update Backup File" : "Keep Backup File Updated"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="status-line">{formatBackupStatus(backupState, papers)}</p>
+                  {backupState.enabled && backupState.lastWrittenAt ? (
+                    <p className="paper-meta">
+                      {backupState.filename || "Selected backup file"} updated{" "}
+                      {new Date(backupState.lastWrittenAt).toLocaleString()}
+                    </p>
                   ) : null}
-                </div>
-                <p className="status-line">{formatBackupStatus(backupState, papers)}</p>
-                {backupState.enabled && backupState.lastWrittenAt ? (
-                  <p className="paper-meta">
-                    {backupState.filename || "Selected backup file"} updated{" "}
-                    {new Date(backupState.lastWrittenAt).toLocaleString()}
-                  </p>
-                ) : null}
-                {!backupState.supported ? (
-                  <p className="paper-meta">
-                    Automatic backup file updates are not available in this browser.
-                  </p>
-                ) : null}
-              </section>
+                  {!backupState.supported ? (
+                    <p className="paper-meta">
+                      Automatic backup file updates are not available in this browser.
+                    </p>
+                  ) : null}
+                </section>
 
-              <SyncPanel
-                deviceIdentity={deviceIdentity}
-                pairedDevices={pairedDevices}
-                nearbyState={nearbyState}
-                pairRouteInviteId={pairRouteInviteId}
-                onCreateInvite={onCreateInvite}
-                onCloseInvite={onCloseInvite}
-                onJoinInvite={onJoinInvite}
-                onCopyInviteLink={onCopyInviteLink}
-                onRenameThisDevice={onRenameThisDevice}
-                onRenamePeer={onRenamePeer}
-                onForgetPeer={onForgetPeer}
-                onSyncNow={onSyncNow}
-                formatPairSyncStatus={formatPairSyncStatus}
-              />
+                <SyncPanel
+                  deviceIdentity={deviceIdentity}
+                  pairedDevices={pairedDevices}
+                  nearbyState={nearbyState}
+                  pairRouteInviteId={pairRouteInviteId}
+                  onCreateInvite={onCreateInvite}
+                  onCloseInvite={onCloseInvite}
+                  onJoinInvite={onJoinInvite}
+                  onCopyInviteLink={onCopyInviteLink}
+                  onRenameThisDevice={onRenameThisDevice}
+                  onRenamePeer={onRenamePeer}
+                  onForgetPeer={onForgetPeer}
+                  onSyncNow={onSyncNow}
+                  formatPairSyncStatus={formatPairSyncStatus}
+                />
 
-              <BookmarkSetupPanel />
+                <BookmarkSetupPanel />
+              </div>
             </div>
           </section>
         </div>
