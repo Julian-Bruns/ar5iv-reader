@@ -254,7 +254,17 @@ input {
 .dashboard-header {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  padding: 1.15rem 1.35rem;
+  padding: 1.15rem 1.5rem;
+}
+
+.reader-topbar,
+.paper-row {
+  position: relative;
+}
+
+.dashboard-header > :first-child,
+.library-heading > :first-child {
+  min-width: 0;
 }
 
 .reader-topbar {
@@ -262,6 +272,11 @@ input {
   align-items: center;
   gap: 1rem;
   padding: 0.8rem 1rem;
+  z-index: 2;
+}
+
+.reader-topbar--menu-open {
+  z-index: 6;
 }
 
 .hero-panel h1,
@@ -491,6 +506,16 @@ input {
   line-height: 1;
 }
 
+.icon-button--menu {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.icon-button--menu svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 .primary-button {
   background: var(--accent);
   color: #fff9f1;
@@ -615,10 +640,9 @@ input {
 }
 
 .library-heading {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 1rem;
 }
 
@@ -637,6 +661,10 @@ input {
   border-radius: 20px;
   background: rgba(255, 251, 245, 0.74);
   border: 1px solid rgba(122, 31, 21, 0.1);
+}
+
+.paper-row--menu-open {
+  z-index: 5;
 }
 
 .paper-row-copy {
@@ -662,7 +690,7 @@ input {
 .paper-menu,
 .reader-menu {
   position: absolute;
-  top: calc(100% + 0.35rem);
+  bottom: calc(100% + 0.45rem);
   right: 0;
   z-index: 4;
   display: grid;
@@ -672,6 +700,7 @@ input {
   border-radius: 14px;
   background: rgba(255, 251, 245, 0.98);
   box-shadow: 0 16px 28px rgba(74, 44, 29, 0.14);
+  backdrop-filter: blur(14px);
 }
 
 .paper-menu button,
@@ -740,6 +769,8 @@ input {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  background: #f8f1e7;
+  backdrop-filter: none;
 }
 
 .settings-modal-header {
@@ -1405,7 +1436,6 @@ input {
   }
 
   .hero-panel,
-  .dashboard-header,
   .paper-card,
   .paper-row,
   .pair-card,
@@ -1417,6 +1447,11 @@ input {
   .reader-topbar {
     grid-template-columns: 1fr;
     justify-items: flex-start;
+  }
+
+  .dashboard-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: flex-start;
   }
 
   .reader-tabs-shell {

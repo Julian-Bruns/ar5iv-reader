@@ -223,7 +223,7 @@ export default function ReaderView({
         </div>
       ) : null}
 
-      <header className="reader-topbar">
+      <header className={`reader-topbar${showActionMenu ? " reader-topbar--menu-open" : ""}`}>
         <div className="reader-context">
           <p className="reader-kicker">{getReaderStatusLabel(paper)}</p>
           <p className="reader-meta">
@@ -256,22 +256,31 @@ export default function ReaderView({
           {shouldShowActionMenu(paper) ? (
             <div className="reader-menu-shell">
               <button
-                className="ghost-button"
+                className="icon-button icon-button--menu"
                 type="button"
                 aria-label="More reader actions"
+                aria-expanded={showActionMenu}
+                aria-haspopup="menu"
                 onClick={() => setShowActionMenu((value) => !value)}
               >
-                More
+                <MoreIcon />
               </button>
               {showActionMenu ? (
-                <div className="reader-menu">
+                <div className="reader-menu" role="menu" aria-label="Reader actions">
                   {paper?.view === "pdf" && paper?.pdfUrl ? (
-                    <a href={paper.pdfUrl} target="_blank" rel="noreferrer" onClick={() => setShowActionMenu(false)}>
+                    <a
+                      href={paper.pdfUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      role="menuitem"
+                      onClick={() => setShowActionMenu(false)}
+                    >
                       Open PDF
                     </a>
                   ) : null}
                   {paper?.mode === "saved" ? (
                     <button
+                      role="menuitem"
                       type="button"
                       onClick={() => {
                         setShowActionMenu(false);
@@ -284,6 +293,7 @@ export default function ReaderView({
                   {paper?.mode === "saved" ? (
                     <button
                       className="reader-menu-danger"
+                      role="menuitem"
                       type="button"
                       onClick={() => {
                         setShowActionMenu(false);
@@ -517,6 +527,16 @@ function BackIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
     </svg>
   );
 }
