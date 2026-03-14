@@ -288,7 +288,7 @@ async function runReaderBackupFlowCheck(browser) {
     await restorePage.goto(APP_URL, { waitUntil: "networkidle" });
     await restorePage.getByRole("button", { name: "Open settings" }).click();
     await restorePage
-      .locator('label:has-text("Restore Local Backup") input')
+      .locator('label:has-text("Restore Backup") input')
       .setInputFiles(backupPath);
     await restorePage.getByRole("button", { name: "Close settings" }).click();
     await expectVisible(restorePage.getByText(PAPER_TITLE));

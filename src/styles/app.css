@@ -584,11 +584,6 @@ input {
   gap: 0.7rem;
 }
 
-.recovery-card {
-  display: grid;
-  gap: 0.85rem;
-}
-
 .status-line {
   margin: 0;
   color: rgba(44, 33, 29, 0.78);
