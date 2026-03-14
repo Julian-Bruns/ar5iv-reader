@@ -57,7 +57,7 @@ bun install
 ### 2. Log in to Cloudflare from the terminal
 
 ```bash
-bunx wrangler login
+bunx wrangler@4.73.0 login
 ```
 
 ### 3. Deploy the nearby signal Worker
@@ -115,7 +115,7 @@ No paid services should be required for low-volume usage on the Cloudflare free 
 
 ```bash
 bun install
-bunx wrangler login
+bunx wrangler@4.73.0 login
 bun run cf:worker:deploy
 ```
 
