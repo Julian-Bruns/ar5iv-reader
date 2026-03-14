@@ -1,18 +1,47 @@
 # ar5iv Reader
 
-A Preact + Vite PWA for reading ar5iv papers, copying LaTeX from rendered math, saving papers for offline use, and nearby-syncing the same library across paired devices on the same network.
+Try it here: [ar5iv-reader.pages.dev](https://ar5iv-reader.pages.dev)
 
-## What Changed
+ar5iv Reader is a PWA for reading arXiv papers in a cleaner mobile-friendly interface, copying LaTeX directly from rendered math, saving papers to a personal library, and syncing that library across paired devices on the same network.
 
-- Long papers scroll more smoothly on mobile.
-- Display math and wide tabular layouts can scroll horizontally on mobile instead of clipping off-screen.
-- Library export/import is a full backup, not only paper IDs.
-- Cross-device sync is now nearby-only:
-  - pair devices once with a short code plus an in-app QR scanner
-  - later syncs reuse the remembered pairing
-  - actual library data stays local on each device
-  - the relay is used only for presence and WebRTC signaling
-- The deployment target is now Cloudflare Pages + a Cloudflare Worker Durable Object instead of a cloud snapshot backend.
+## What It Does
+
+- Install the app directly from your browser on desktop or mobile.
+- Open papers by pasting an arXiv or ar5iv link into the app.
+- Open papers from the web with a bookmarklet.
+- Copy TeX from rendered math with a simple click.
+- Save papers to your local library for later reading.
+- Sync your saved papers and library state to other paired devices on the same network.
+
+## Install It
+
+Open the app over HTTPS and install it from your browser:
+
+- On desktop, use the browser's install action in the address bar or app menu.
+- On mobile, use the browser's add-to-home-screen or install flow.
+
+Once installed, the app behaves like a standalone reader instead of just another browser tab.
+
+## Open Papers
+
+There are two main ways to open a paper:
+
+- Paste an arXiv or ar5iv URL into the app.
+- Use the bookmarklet so you can send the current paper straight into ar5iv Reader from your browser.
+
+The goal is to make getting a paper into the reader as close to one action as possible.
+
+## Copy TeX
+
+Rendered math is interactive. Click an equation to copy its underlying TeX without opening developer tools, inspecting the page, or manually reconstructing the source.
+
+## Save Papers
+
+You can save papers into your library for later reading. This keeps the papers you care about in one place and makes the reader useful as a lightweight personal archive rather than just a transient viewer.
+
+## Sync Across Devices
+
+You can pair devices and sync your library between them on the same network, so saved papers are available on more than one machine. The intended workflow is simple: save on one device, pick up reading on another.
 
 ## Local Development
 
@@ -21,173 +50,21 @@ bun install
 bun run dev
 ```
 
-If `bun` is installed but not on your shell path yet:
-
-```bash
-export PATH="$HOME/.bun/bin:$PATH"
-```
-
-## Local Production Build
+For a production build:
 
 ```bash
 bun run build
 bun run preview
 ```
 
-The frontend builds locally without the nearby relay. To use nearby sync outside local testing, deploy the Worker and set `VITE_NEARBY_SIGNAL_URL`.
+## Contributing
 
-## Nearby Sync Model
+I am not accepting pull requests right now except for very small changes in the 1-5 line range.
 
-- Each install creates a persistent local device identity.
-- Pairing uses a one-time code or an in-app QR scan.
-- After pairing, later launches automatically look for already-paired devices that are open on the same network.
-- If a paired device is found, the app uses the Worker for signaling and a WebRTC data channel for the actual transfer.
-- Paper HTML, assets, and the library database are never stored on the relay.
-- Nearby sync only works while both apps are open or foregrounded.
-- The first version is optimized for Chromium desktop and Android Chrome. iPhone support is best-effort.
+If you want a bug fix, UX change, or new feature, open an issue instead. Please include:
 
-## Cloudflare Deployment
+- why the change should exist
+- what behavior you want changed or added
+- a concrete prompt describing how you would build it
 
-### 1. Install dependencies
-
-```bash
-bun install
-```
-
-### 2. Log in to Cloudflare from the terminal
-
-```bash
-bunx wrangler@4.73.0 login
-```
-
-### 3. Deploy the nearby signal Worker
-
-The Worker code lives in [`worker/src/index.ts`](worker/src/index.ts).
-
-```bash
-bun run cf:worker:deploy
-```
-
-When deploy finishes, note the Worker hostname. The websocket endpoint is:
-
-```text
-wss://<your-worker-subdomain>.workers.dev/ws
-```
-
-### 4. Create a Cloudflare Pages project for the PWA
-
-Use the Cloudflare dashboard:
-
-- Workers & Pages
-- Create
-- Pages
-- Connect to Git
-- select this repo
-
-Recommended Pages settings:
-
-- Framework preset: `Vite`
-- Build command: `bun run cf:pages:build`
-- Build output directory: `dist`
-- Root directory: repo root
-
-### 5. Add the required Pages environment variable
-
-In the Pages project settings, add:
-
-```text
-VITE_NEARBY_SIGNAL_URL=wss://<your-worker-subdomain>.workers.dev/ws
-```
-
-Then redeploy the Pages project.
-
-### 6. Public URL
-
-After Pages finishes deploying, the shareable link is:
-
-```text
-https://<your-project>.pages.dev
-```
-
-No paid services should be required for low-volume usage on the Cloudflare free tier.
-
-## Quick Command List
-
-```bash
-bun install
-bunx wrangler@4.73.0 login
-bun run cf:worker:deploy
-```
-
-Optional local relay test:
-
-```bash
-bun run cf:worker:dev
-```
-
-Optional local frontend build check:
-
-```bash
-bun run build
-```
-
-## Install and Launch From arXiv
-
-1. Open the deployed app over HTTPS.
-2. Install it from the browser menu.
-3. On phones, you can use the browser share sheet and choose `ar5iv Reader`.
-4. On desktop, open `Bookmark Setup` in the app and drag `Open in ar5iv Reader` into the bookmarks bar once.
-5. Later, use the share target or bookmark to open the paper in the reader.
-
-## Nearby Pairing Flow
-
-1. On Device A, open `Nearby Sync`.
-2. Tap `Add Device`.
-3. On Device B, open `Nearby Sync`, then type the shown code or scan the QR code inside the app.
-4. Keep both apps open until pairing completes.
-5. After that, nearby syncs reuse the remembered pairing automatically.
-
-## Release Checklist
-
-Before sending the link to friends, test:
-
-1. Pair two devices.
-2. Save a paper on Device A and confirm Device B receives it.
-3. Delete a paper on Device A and confirm Device B removes it after sync.
-4. Close both apps, reopen both, and confirm sync still works without re-pairing.
-5. Import a backup on one device and confirm it syncs to the other.
-6. Upgrade from the previous production build with a populated offline library and confirm the library stays intact without refetching papers.
-
-## Upgrade Compatibility
-
-- Keep the production origin stable so the installed PWA stays one app entry instead of creating a second install.
-- Treat the manifest identity as frozen: `id`, `scope`, and `start_url` should remain `/` unless you are planning a deliberate breaking migration.
-- Full backup restore is merge-based, so importing an older backup should not overwrite newer local papers or deletion tombstones.
-- URL restore is the last-resort recovery path because it refetches papers and may use mobile data.
-- Version changes should update the app shell and local metadata only. They should not automatically refetch saved papers.
-
-## Backups
-
-- `Export Backup` downloads the full offline library, including cached assets.
-- `Import Backup` merges that backup into the current library using per-paper revision metadata.
-- `Export URLs` downloads a lightweight recovery manifest of saved paper URLs and metadata.
-- `Import URLs` refetches those papers and rebuilds the local library without requiring an account or server snapshot.
-- `Keep Recovery File Updated` is a Chromium-only option that mirrors the full backup JSON to a user-chosen file outside browser-managed storage.
-- `Export HTML` still downloads the raw saved HTML for a single paper.
-
-## Routes
-
-- `/` shows the local library dashboard
-- `/?url=<url>&title=<title>&text=<text>` and `/receive?url=<url>&title=<title>&text=<text>` handle share/bookmarklet ingress
-- `/?paper=<id>` opens a saved offline paper
-- `/?pair=<inviteId>` handles one-time nearby device pairing
-
-## Notes
-
-- Live paper fetches prefer `arxiv.org/html/<id>` and fall back to `ar5iv.labs.arxiv.org/html/<id>`, both through a configurable relay list when the browser cannot fetch them directly.
-- If neither HTML path yields a usable rendered paper, the reader opens the arXiv PDF instead and disables math copy for that session.
-- The service worker caches the app shell. Saved paper HTML, figure blobs, pairing metadata, and revision metadata are stored in IndexedDB.
-- Storage persistence is requested through the Storage API, but browser-managed data can still be cleared by the user or browser policies.
-- OPFS is not used for library persistence because it is still origin-scoped like IndexedDB and Cache Storage.
-- `public/_redirects` is included so Cloudflare Pages serves `/receive` as SPA content instead of returning a direct-route 404.
-- Nearby sync is same-network-first and does not use TURN in v1, so it is not guaranteed to work across different networks or restrictive NAT setups.
+That issue is the right place to propose larger changes. Small typo fixes or similarly tiny edits are the only pull requests I expect to merge for now.
