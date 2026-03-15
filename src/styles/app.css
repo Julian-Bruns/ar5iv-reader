@@ -1093,6 +1093,104 @@ input {
   border-radius: 0;
 }
 
+.pdf-surface-shell {
+  display: grid;
+  gap: 0.9rem;
+  min-height: clamp(32rem, calc(100dvh - 8rem), 96rem);
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(255, 251, 245, 0.92), rgba(245, 235, 223, 0.7)),
+    radial-gradient(circle at top, rgba(217, 175, 119, 0.1), transparent 55%);
+  border: 1px solid rgba(122, 31, 21, 0.1);
+  border-radius: 28px;
+  box-shadow: 0 18px 42px rgba(74, 44, 29, 0.12);
+}
+
+.pdf-surface-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pdf-surface-label,
+.pdf-surface-meta {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.7);
+  font-size: 0.88rem;
+}
+
+.pdf-surface-label {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pdf-surface-status {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(122, 31, 21, 0.08);
+  color: rgba(44, 33, 29, 0.8);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.pdf-surface-status--ready {
+  background: rgba(45, 106, 79, 0.12);
+  color: #2d6a4f;
+}
+
+.pdf-surface-status--pending {
+  background: rgba(217, 175, 119, 0.2);
+  color: #8a3b12;
+}
+
+.pdf-surface-status--disabled {
+  background: rgba(122, 31, 21, 0.08);
+  color: rgba(44, 33, 29, 0.8);
+}
+
+.pdf-surface-status--error {
+  background: rgba(158, 47, 31, 0.12);
+  color: #9e2f1f;
+}
+
+.pdf-surface-pages,
+.pdf-surface-empty {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 1rem;
+  min-height: clamp(28rem, calc(100dvh - 12rem), 90rem);
+  padding: 0.35rem;
+  border-radius: 22px;
+  background: rgba(113, 83, 59, 0.05);
+}
+
+.pdf-surface-pages--interactive {
+  cursor: crosshair;
+}
+
+.pdf-page {
+  width: min(100%, 60rem);
+  padding: 0.55rem;
+  border-radius: 22px;
+  background: rgba(255, 252, 247, 0.85);
+  box-shadow: 0 16px 30px rgba(74, 44, 29, 0.08);
+}
+
+.pdf-page-canvas {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
 .paper-body {
   --paper-text-font-family:
     "Iowan Old Style",
@@ -1286,15 +1384,6 @@ input {
 
 .paper-body foreignObject {
   --fo_width: 100%;
-}
-
-.pdf-viewer {
-  display: block;
-  width: 100%;
-  height: clamp(calc(100dvh - 8rem), 95vw, 120rem);
-  border: 0;
-  border-radius: 0;
-  background: #fff;
 }
 
 .reader-id-link {
@@ -1528,8 +1617,18 @@ input {
     padding: 0.55rem;
   }
 
-  .pdf-viewer {
-    height: max(calc(100dvh - 7rem), 70rem);
+  .pdf-surface-shell {
+    min-height: clamp(24rem, calc(100dvh - 6rem), 72rem);
+    padding: 0.75rem;
+  }
+
+  .pdf-surface-pages,
+  .pdf-surface-empty {
+    min-height: clamp(20rem, calc(100dvh - 11rem), 60rem);
+  }
+
+  .pdf-page {
+    padding: 0.4rem;
   }
 
   .paper-root > .paper-chunk {
