@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import preact from "@preact/preset-vite";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const defaultPdfMathOrtWasmUrl =
+  "https://pub-204df3f8d4a445cdbda23b55ffae9214.r2.dev/vendor/onnxruntime-web/1.24.3/ort-wasm-simd-threaded.asyncify.wasm";
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")
 );
@@ -16,22 +18,32 @@ const buildId = sanitizeBuildId(
     new Date().toISOString()
 );
 
-export default defineConfig({
-  plugins: [
-    preact(),
-    generatedServiceWorkerPlugin({
-      buildId,
-      publicDir: path.join(projectRoot, "public"),
-      templatePath: path.join(projectRoot, "src", "sw.js")
-    })
-  ],
-  define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
-    __APP_BUILD_ID__: JSON.stringify(buildId)
-  },
-  server: {
-    port: 5173
-  }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, projectRoot, "");
+  const externalOrtWasmUrl = normalizeExternalAssetUrl(env.VITE_PDF_MATH_ORT_WASM_URL)
+    || defaultPdfMathOrtWasmUrl;
+
+  return {
+    plugins: [
+      preact(),
+      generatedServiceWorkerPlugin({
+        buildId,
+        publicDir: path.join(projectRoot, "public"),
+        templatePath: path.join(projectRoot, "src", "sw.js")
+      }),
+      externalOrtWasmPlugin({
+        externalOrtWasmUrl
+      })
+    ],
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __APP_BUILD_ID__: JSON.stringify(buildId),
+      __PDF_MATH_ORT_WASM_URL__: JSON.stringify(externalOrtWasmUrl)
+    },
+    server: {
+      port: 5173
+    }
+  };
 });
 
 function generatedServiceWorkerPlugin({ buildId, publicDir, templatePath }) {
@@ -46,6 +58,10 @@ function generatedServiceWorkerPlugin({ buildId, publicDir, templatePath }) {
 
       for (const [fileName, output] of Object.entries(bundle)) {
         if (fileName === "sw.js") {
+          continue;
+        }
+
+        if (fileName.endsWith(".wasm")) {
           continue;
         }
 
@@ -64,6 +80,24 @@ function generatedServiceWorkerPlugin({ buildId, publicDir, templatePath }) {
         fileName: "sw.js",
         source: rendered
       });
+    }
+  };
+}
+
+function externalOrtWasmPlugin({ externalOrtWasmUrl }) {
+  return {
+    name: "external-ort-wasm",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      if (!externalOrtWasmUrl) {
+        return;
+      }
+
+      for (const fileName of Object.keys(bundle)) {
+        if (/(^|\/)ort-wasm-simd-threaded.*\.wasm$/i.test(fileName)) {
+          delete bundle[fileName];
+        }
+      }
     }
   };
 }
@@ -91,7 +125,11 @@ function walkPublicEntry(baseDir, entry, files, parentPath = "") {
     return;
   }
 
-  if (relativePath === "sw.js" || relativePath === "_redirects") {
+  if (
+    relativePath === "sw.js" ||
+    relativePath === "_redirects" ||
+    relativePath.startsWith("models/")
+  ) {
     return;
   }
 
@@ -103,4 +141,17 @@ function sanitizeBuildId(value) {
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "") || "dev-build";
+}
+
+function normalizeExternalAssetUrl(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const url = new URL(String(value).trim());
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
 }
