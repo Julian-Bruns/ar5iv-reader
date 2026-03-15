@@ -79,6 +79,56 @@ describe("pdfMathService", () => {
     );
   });
 
+  it("sends the frozen warmup worker protocol payloads", async () => {
+    const service = await import("./pdfMathService");
+
+    await service.prefetch();
+
+    expect(FakeWorker.instances).toHaveLength(1);
+    expect(FakeWorker.instances[0].postCalls).toEqual([
+      {
+        message: {
+          type: "INIT",
+          requestId: expect.any(String),
+          payload: {
+            modelRevision: "breezedeus-pix2text-v1"
+          }
+        },
+        transfer: []
+      },
+      {
+        message: {
+          type: "LOAD_MODELS",
+          requestId: expect.any(String),
+          payload: {
+            modelRevision: "breezedeus-pix2text-v1",
+            models: [
+              {
+                role: "detector",
+                modelId: "breezedeus/pix2text-mfd"
+              },
+              {
+                role: "recognizer",
+                modelId: "breezedeus/pix2text-mfr"
+              }
+            ]
+          }
+        },
+        transfer: []
+      },
+      {
+        message: {
+          type: "RUN_BENCHMARK",
+          requestId: expect.any(String),
+          payload: {
+            thresholdMs: 5000
+          }
+        },
+        transfer: []
+      }
+    ]);
+  });
+
   it("reuses the warmup benchmark after disposing and reacquiring the worker", async () => {
     const service = await import("./pdfMathService");
 
@@ -309,6 +359,74 @@ describe("pdfMathService", () => {
     expect(FakeWorker.instances[0].messages.some((message) => message.type === "DISPOSE")).toBe(true);
     expect(FakeWorker.instances[0].terminated).toBe(true);
   });
+
+  it("sends detect requests with the frozen payload shape and transfer list", async () => {
+    const imageBitmap = { tag: "bitmap" };
+    installWorkerScenario({
+      INIT(message) {
+        this.emitReady(message.requestId, "init");
+      },
+      LOAD_MODELS(message) {
+        this.emitReady(message.requestId, "models");
+      },
+      RUN_BENCHMARK(message) {
+        this.emitBenchmark(message.requestId, {
+          durationMs: 120,
+          passed: true,
+          thresholdMs: message.payload.thresholdMs
+        });
+      },
+      DETECT_AND_RECOGNIZE(message) {
+        this.emitResult(message.requestId, {
+          status: "ok",
+          latex: "\\beta",
+          confidence: 0.8,
+          bounds: {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10
+          },
+          reason: ""
+        });
+      }
+    });
+
+    const service = await import("./pdfMathService");
+    await service.acquire();
+
+    await expect(
+      service.detectAndRecognize({
+        imageBitmap,
+        clickPoint: { x: 12, y: 34 },
+        cropRect: { x: 1, y: 2, width: 3, height: 4 }
+      })
+    ).resolves.toEqual({
+      status: "ok",
+      latex: "\\beta",
+      confidence: 0.8,
+      bounds: {
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10
+      },
+      reason: ""
+    });
+
+    expect(FakeWorker.instances[0].postCalls.at(-1)).toEqual({
+      message: {
+        type: "DETECT_AND_RECOGNIZE",
+        requestId: expect.any(String),
+        payload: {
+          imageBitmap,
+          clickPoint: { x: 12, y: 34 },
+          cropRect: { x: 1, y: 2, width: 3, height: 4 }
+        }
+      },
+      transfer: [imageBitmap]
+    });
+  });
 });
 
 function installBrowserEnvironment() {
@@ -351,6 +469,7 @@ class FakeWorker {
   constructor(url) {
     this.url = url;
     this.messages = [];
+    this.postCalls = [];
     this.terminated = false;
     this.onmessage = null;
     this.onerror = null;
@@ -358,8 +477,12 @@ class FakeWorker {
     FakeWorker.instances.push(this);
   }
 
-  postMessage(message) {
+  postMessage(message, transfer = []) {
     this.messages.push(message);
+    this.postCalls.push({
+      message,
+      transfer
+    });
     const handler = FakeWorker.handlers[message.type];
     if (handler) {
       handler.call(this, message);

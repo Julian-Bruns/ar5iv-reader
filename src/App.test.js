@@ -20,4 +20,18 @@ describe("App PDF fallback integration", () => {
     expect(source).toMatch(/void fetchBlobWithFallback\(paper\.pdfUrl\)/);
     expect(source).toMatch(/void pdfMathService\.prefetch\(\)/);
   });
+
+  it("revokes superseded and closed PDF blob URLs through the App-owned lifecycle", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(
+      /for \(const blobUrl of getSupersededPdfBlobUrls\(currentTabs, nextTabs\)\) {\s*revokeObjectUrl\(blobUrl\);/s
+    );
+    expect(source).toMatch(
+      /for \(const tab of openTabsRef\.current\) {\s*revokeObjectUrl\(getPdfFallbackBlobUrl\(tab\)\);/s
+    );
+    expect(source).toMatch(
+      /if \(pdfFallbackPrimeRequestIdsRef\.current\.get\(tabKey\) !== requestId\) {\s*revokeObjectUrl\(objectUrl\);/s
+    );
+  });
 });

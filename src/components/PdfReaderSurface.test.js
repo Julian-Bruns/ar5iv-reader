@@ -107,6 +107,87 @@ describe("PdfReaderSurface status contract", () => {
       })
     ).toBe(true);
   });
+
+  it.each([
+    [
+      "insecure_context",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.insecure_context
+      }
+    ],
+    [
+      "worker_unsupported",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.worker_unsupported
+      }
+    ],
+    [
+      "gpu_unavailable",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.gpu_unavailable
+      }
+    ],
+    [
+      "device_memory_too_low",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.device_memory_too_low
+      }
+    ],
+    [
+      "hardware_concurrency_too_low",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.hardware_concurrency_too_low
+      }
+    ],
+    [
+      "storage_free_too_low",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.storage_free_too_low
+      }
+    ],
+    [
+      "worker_error",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.worker_error
+      }
+    ],
+    [
+      "benchmark_too_slow",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.benchmark_too_slow
+      }
+    ],
+    [
+      "benchmark_failed",
+      {
+        tone: "disabled",
+        text: PDF_SURFACE_STATUS_MESSAGES.benchmark_failed
+      }
+    ],
+    [
+      "ocr_empty",
+      {
+        tone: "error",
+        text: PDF_SURFACE_STATUS_MESSAGES.ocr_empty
+      }
+    ]
+  ])("renders %s as status-only copy", (mathCopyReason, expected) => {
+    expect(
+      getPdfSurfaceStatus({
+        loadStatus: "ready",
+        mathCopyStatus: expected.tone === "error" ? "error" : "disabled",
+        mathCopyReason
+      })
+    ).toEqual(expected);
+  });
 });
 
 describe("PdfReaderSurface callback and toast contract", () => {
@@ -127,5 +208,13 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).not.toMatch(/onCopySuccess\?\.\("PDF math copy requires/);
     expect(source).not.toMatch(/onCopyFailure\?\.\("PDF math copy requires/);
     expect(source).not.toMatch(/onCopyFailure\?\.\("No formula was detected at that location\."\);/);
+  });
+
+  it("keeps capability failures in the status UI instead of adding banners", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/className=\{`pdf-surface-status pdf-surface-status--\$\{status\.tone\}`\}/);
+    expect(source).not.toMatch(/banner--error/);
+    expect(source).not.toMatch(/banner--notice/);
   });
 });
