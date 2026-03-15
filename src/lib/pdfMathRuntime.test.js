@@ -149,6 +149,9 @@ vi.mock("onnxruntime-web/webgpu", () => {
   }
 
   return {
+    env: {
+      wasm: {}
+    },
     Tensor,
     InferenceSession: {
       create: vi.fn(async (buffer) => {

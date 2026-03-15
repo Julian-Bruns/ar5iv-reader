@@ -5,6 +5,8 @@ import { defineConfig, loadEnv } from "vite";
 import preact from "@preact/preset-vite";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
+const defaultPdfMathOrtWasmUrl =
+  "https://pub-204df3f8d4a445cdbda23b55ffae9214.r2.dev/vendor/onnxruntime-web/1.24.3/ort-wasm-simd-threaded.asyncify.wasm";
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")
 );
@@ -18,7 +20,8 @@ const buildId = sanitizeBuildId(
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, projectRoot, "");
-  const externalOrtWasmUrl = normalizeExternalAssetUrl(env.VITE_PDF_MATH_ORT_WASM_URL);
+  const externalOrtWasmUrl = normalizeExternalAssetUrl(env.VITE_PDF_MATH_ORT_WASM_URL)
+    || defaultPdfMathOrtWasmUrl;
 
   return {
     plugins: [

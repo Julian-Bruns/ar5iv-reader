@@ -64,7 +64,9 @@ bun run cf:r2:upload:ort-wasm -- <BUCKET_NAME> vendor/onnxruntime-web/1.24.3/ort
 
 ## Configure Cloudflare Pages
 
-Set this environment variable in your Pages project:
+This repo now defaults to the current public R2 URL for the wasm file. You only need a Pages environment variable if you want to override it later.
+
+Optional override:
 
 ```bash
 VITE_PDF_MATH_ORT_WASM_URL=https://assets.example.com/vendor/onnxruntime-web/1.24.3/ort-wasm-simd-threaded.asyncify.wasm
