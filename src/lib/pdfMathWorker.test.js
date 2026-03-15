@@ -31,10 +31,11 @@ describe("pdfMathWorker protocol contract", () => {
     expect(source).toMatch(/type:\s*"ERROR"[\s\S]*code:\s*normalized\.code[\s\S]*message:\s*normalized\.message[\s\S]*fatal:\s*Boolean\(normalized\.fatal\)/);
   });
 
-  it("keeps the incomplete runtime failure mapped to models_load_failed", () => {
+  it("creates the runtime through the dedicated pdf math runtime module", () => {
     const source = fs.readFileSync(workerPath, "utf8");
 
-    expect(source).toMatch(/throw createPdfMathError\(\s*"models_load_failed",/);
-    expect(source).toMatch(/PDF math model runtime is not specified by the frozen contract\./);
+    expect(source).toMatch(/import \{ createPdfMathRuntime \} from "\.\/pdfMathRuntime";/);
+    expect(source).toMatch(/return createPdfMathRuntime\(\{/);
+    expect(source).toMatch(/modelRevision: PDF_MATH_MODEL_REVISION/);
   });
 });

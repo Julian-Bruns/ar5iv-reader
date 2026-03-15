@@ -49,6 +49,10 @@ function generatedServiceWorkerPlugin({ buildId, publicDir, templatePath }) {
           continue;
         }
 
+        if (fileName.endsWith(".wasm")) {
+          continue;
+        }
+
         if (output.type === "asset" || output.type === "chunk") {
           precacheUrls.add(`/${fileName}`);
         }
@@ -91,7 +95,11 @@ function walkPublicEntry(baseDir, entry, files, parentPath = "") {
     return;
   }
 
-  if (relativePath === "sw.js" || relativePath === "_redirects") {
+  if (
+    relativePath === "sw.js" ||
+    relativePath === "_redirects" ||
+    relativePath.startsWith("models/")
+  ) {
     return;
   }
 

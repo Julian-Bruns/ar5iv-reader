@@ -21,6 +21,28 @@ describe("App PDF fallback integration", () => {
     expect(source).toMatch(/void pdfMathService\.prefetch\(\)/);
   });
 
+  it("wires ReaderView PDF render callbacks back into App-owned pdfState", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/function handlePdfFirstPageRender\(tabKey, blobUrl\)/);
+    expect(source).toMatch(/function handlePdfRenderFailure\(tabKey, blobUrl\)/);
+    expect(source).toMatch(/onPdfFirstPageRender=\{\(\) =>/);
+    expect(source).toMatch(/handlePdfFirstPageRender\(activeTabKey, reader\.paper\?\.pdfState\?\.blobUrl \|\| ""\)/);
+    expect(source).toMatch(/onPdfRenderFailure=\{\(\) =>/);
+    expect(source).toMatch(/handlePdfRenderFailure\(activeTabKey, reader\.paper\?\.pdfState\?\.blobUrl \|\| ""\)/);
+  });
+
+  it("marks PDF render readiness in App and clears failed blob URLs through the normal tab lifecycle", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(
+      /function handlePdfFirstPageRender\(tabKey, blobUrl\) \{[\s\S]*currentPaper\.pdfState\.blobUrl !== blobUrl[\s\S]*loadStatus: "ready"/
+    );
+    expect(source).toMatch(
+      /function handlePdfRenderFailure\(tabKey, blobUrl\) \{[\s\S]*currentPaper\.pdfState\.blobUrl !== blobUrl[\s\S]*blobUrl: ""[\s\S]*loadStatus: "error"/
+    );
+  });
+
   it("revokes superseded and closed PDF blob URLs through the App-owned lifecycle", () => {
     const source = fs.readFileSync(appPath, "utf8");
 

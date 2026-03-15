@@ -1038,6 +1038,47 @@ export default function App() {
       });
   }
 
+  function handlePdfFirstPageRender(tabKey, blobUrl) {
+    if (!tabKey || !blobUrl) {
+      return;
+    }
+
+    patchPdfFallbackPaper(tabKey, (currentPaper) => {
+      if (currentPaper.pdfState.blobUrl !== blobUrl) {
+        return null;
+      }
+
+      return {
+        ...currentPaper,
+        pdfState: {
+          ...currentPaper.pdfState,
+          loadStatus: "ready"
+        }
+      };
+    });
+  }
+
+  function handlePdfRenderFailure(tabKey, blobUrl) {
+    if (!tabKey || !blobUrl) {
+      return;
+    }
+
+    patchPdfFallbackPaper(tabKey, (currentPaper) => {
+      if (currentPaper.pdfState.blobUrl !== blobUrl) {
+        return null;
+      }
+
+      return {
+        ...currentPaper,
+        pdfState: {
+          ...currentPaper.pdfState,
+          blobUrl: "",
+          loadStatus: "error"
+        }
+      };
+    });
+  }
+
   function updateResolvedPaperTitle(paperId, nextTitle, { replaceableTitles = [] } = {}) {
     const normalizedNextTitle = normalizePaperTitle(nextTitle, paperId);
     if (!normalizedNextTitle) {
@@ -1968,6 +2009,12 @@ export default function App() {
           onExport={() => handleExportPaper(reader.paper.id)}
           onDelete={() => handleDeletePaper(reader.paper.id)}
           showToast={showToast}
+          onPdfFirstPageRender={() =>
+            handlePdfFirstPageRender(activeTabKey, reader.paper?.pdfState?.blobUrl || "")
+          }
+          onPdfRenderFailure={() =>
+            handlePdfRenderFailure(activeTabKey, reader.paper?.pdfState?.blobUrl || "")
+          }
         />
       ) : (
         <LibraryView

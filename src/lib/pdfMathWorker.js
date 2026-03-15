@@ -4,6 +4,7 @@ import {
   PDF_MATH_BENCHMARK_THRESHOLD_MS,
   PDF_MATH_MODEL_REVISION
 } from "./pdfMathCommon";
+import { createPdfMathRuntime } from "./pdfMathRuntime";
 
 const workerState = {
   initialized: false,
@@ -154,11 +155,9 @@ async function disposeRuntime() {
 }
 
 async function createRuntime() {
-  throw createPdfMathError(
-    "models_load_failed",
-    "PDF math model runtime is not specified by the frozen contract.",
-    false
-  );
+  return createPdfMathRuntime({
+    modelRevision: PDF_MATH_MODEL_REVISION
+  });
 }
 
 function postError(requestId, error) {
