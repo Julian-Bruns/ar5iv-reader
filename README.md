@@ -57,6 +57,8 @@ bun run build
 bun run preview
 ```
 
+For Cloudflare Pages deployments with PDF math enabled, put the ONNX Runtime Web wasm file on R2 and set `VITE_PDF_MATH_ORT_WASM_URL` during the Pages build. The exact setup is documented in [`docs/cloudflare-r2-ort-wasm.md`](docs/cloudflare-r2-ort-wasm.md).
+
 ## Contributing
 
 I am not accepting pull requests right now except for very small changes in the 1-5 line range.

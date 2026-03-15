@@ -13,6 +13,7 @@ import {
   putMlModelMetaRecord,
   putMlModelRecord
 } from "./pdfMathModelStore";
+import { configurePdfMathOrtRuntime } from "./pdfMathOrt";
 import { createPdfMathTokenizer } from "./pdfMathTokenizer";
 
 const DETECTION_INPUT_SIZE = 640;
@@ -23,6 +24,8 @@ const MAX_RECOGNIZER_TOKENS = 512;
 const DEFAULT_BOUNDS_PADDING = 6;
 
 export async function createPdfMathRuntime({ modelRevision = PDF_MATH_MODEL_REVISION } = {}) {
+  configurePdfMathOrtRuntime(ort);
+
   const manifest = getPdfMathModelManifest(modelRevision);
   if (!manifest) {
     throw createPdfMathError("models_load_failed", "Unsupported PDF math model revision.", false);
@@ -836,4 +839,3 @@ function assertModelsReady(state) {
     throw createPdfMathError("pdf_not_ready", "PDF math models are not ready.", false);
   }
 }
-
