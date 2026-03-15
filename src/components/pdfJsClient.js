@@ -12,10 +12,8 @@ export async function loadPdfJs() {
 }
 
 async function importPdfJs() {
-  const pdfModuleSpecifier = "pdfjs-dist/build/pdf.mjs";
-  const workerSpecifier = "pdfjs-dist/build/pdf.worker.min.mjs?url";
-  const pdfModule = await import(/* @vite-ignore */ pdfModuleSpecifier);
-  const workerModule = await import(/* @vite-ignore */ workerSpecifier).catch(() => null);
+  const pdfModule = await import("pdfjs-dist/build/pdf.mjs");
+  const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url").catch(() => null);
   const pdfjs = pdfModule?.default || pdfModule;
   const workerSrc = workerModule?.default || workerModule;
 
