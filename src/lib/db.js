@@ -1,10 +1,12 @@
 import { collectAssetUrls, fetchAssetRecords } from "./assets";
 
 const DB_NAME = "ar5iv-reader";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const PAPER_STORE = "papers";
 const ASSET_STORE = "assets";
 const SETTING_STORE = "settings";
+const ML_MODEL_STORE = "mlModels";
+const ML_MODEL_META_STORE = "mlModelMeta";
 const SNAPSHOT_SCHEMA_VERSION = 2;
 const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled"]);
 
@@ -14,6 +16,10 @@ export const SETTING_KEYS = Object.freeze({
   nearbySyncState: "nearbySyncState",
   pairedDevices: "pairedDevices",
   pdfFallbackNoticeEnabled: "pdfFallbackNoticeEnabled",
+  pdfMathCopyDisableNoticeShown: "pdfMathCopyDisableNoticeShown",
+  pdfMathCopyCapability: "pdfMathCopyCapability",
+  pdfMathCopyBenchmark: "pdfMathCopyBenchmark",
+  pdfMathCopyModelRevision: "pdfMathCopyModelRevision",
   backupFileHandle: "backupFileHandle",
   backupState: "backupState",
   recoveryFileHandle: "recoveryFileHandle",
@@ -138,6 +144,95 @@ export async function setSetting(key, value) {
     key,
     value,
     updatedAt: new Date().toISOString()
+  });
+  await transactionToPromise(transaction);
+}
+
+export async function getMlModelRecord(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(ML_MODEL_STORE).get(key));
+}
+
+export async function listMlModelRecords({ revision = "", modelId = "" } = {}) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_STORE], "readonly");
+  const store = transaction.objectStore(ML_MODEL_STORE);
+
+  if (revision) {
+    const records = await requestToPromise(store.index("revision").getAll(IDBKeyRange.only(revision)));
+    return modelId ? records.filter((record) => record.modelId === modelId) : records;
+  }
+
+  if (modelId) {
+    return requestToPromise(store.index("modelId").getAll(IDBKeyRange.only(modelId)));
+  }
+
+  return requestToPromise(store.getAll());
+}
+
+export async function putMlModelRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_STORE], "readwrite");
+  transaction.objectStore(ML_MODEL_STORE).put({
+    key: String(record?.key || "").trim(),
+    revision: String(record?.revision || "").trim(),
+    modelId: String(record?.modelId || "").trim(),
+    filename: String(record?.filename || "").trim(),
+    blob: record?.blob instanceof Blob ? record.blob : new Blob([]),
+    size: Number(record?.size || 0),
+    updatedAt: String(record?.updatedAt || new Date().toISOString())
+  });
+  await transactionToPromise(transaction);
+}
+
+export async function deleteMlModelRecords({ revision = "", modelId = "" } = {}) {
+  if (!revision && !modelId) {
+    return;
+  }
+
+  const records = await listMlModelRecords({
+    revision,
+    modelId
+  });
+  if (!records.length) {
+    return;
+  }
+
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_STORE], "readwrite");
+  const store = transaction.objectStore(ML_MODEL_STORE);
+  for (const record of records) {
+    store.delete(record.key);
+  }
+  await transactionToPromise(transaction);
+}
+
+export async function getMlModelMetaRecord(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_META_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(ML_MODEL_META_STORE).get(key));
+}
+
+export async function listMlModelMetaRecords({ revision = "" } = {}) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_META_STORE], "readonly");
+  const store = transaction.objectStore(ML_MODEL_META_STORE);
+  if (revision) {
+    return requestToPromise(store.index("revision").getAll(IDBKeyRange.only(revision)));
+  }
+  return requestToPromise(store.getAll());
+}
+
+export async function putMlModelMetaRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ML_MODEL_META_STORE], "readwrite");
+  transaction.objectStore(ML_MODEL_META_STORE).put({
+    key: String(record?.key || record?.modelId || "").trim(),
+    revision: String(record?.revision || "").trim(),
+    modelId: String(record?.modelId || "").trim(),
+    files: Array.isArray(record?.files) ? record.files.map((file) => String(file || "").trim()).filter(Boolean) : [],
+    updatedAt: String(record?.updatedAt || new Date().toISOString())
   });
   await transactionToPromise(transaction);
 }
@@ -360,6 +455,32 @@ function openDatabase() {
 
         if (!database.objectStoreNames.contains(SETTING_STORE)) {
           database.createObjectStore(SETTING_STORE, { keyPath: "key" });
+        }
+
+        if (!database.objectStoreNames.contains(ML_MODEL_STORE)) {
+          const mlModelStore = database.createObjectStore(ML_MODEL_STORE, { keyPath: "key" });
+          mlModelStore.createIndex("revision", "revision", { unique: false });
+          mlModelStore.createIndex("modelId", "modelId", { unique: false });
+        } else if (transaction) {
+          const mlModelStore = transaction.objectStore(ML_MODEL_STORE);
+          if (!mlModelStore.indexNames.contains("revision")) {
+            mlModelStore.createIndex("revision", "revision", { unique: false });
+          }
+          if (!mlModelStore.indexNames.contains("modelId")) {
+            mlModelStore.createIndex("modelId", "modelId", { unique: false });
+          }
+        }
+
+        if (!database.objectStoreNames.contains(ML_MODEL_META_STORE)) {
+          const mlModelMetaStore = database.createObjectStore(ML_MODEL_META_STORE, {
+            keyPath: "key"
+          });
+          mlModelMetaStore.createIndex("revision", "revision", { unique: false });
+        } else if (transaction) {
+          const mlModelMetaStore = transaction.objectStore(ML_MODEL_META_STORE);
+          if (!mlModelMetaStore.indexNames.contains("revision")) {
+            mlModelMetaStore.createIndex("revision", "revision", { unique: false });
+          }
         }
       };
 
