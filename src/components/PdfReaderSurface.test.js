@@ -197,6 +197,7 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/onFirstPageRender/);
     expect(source).toMatch(/onRenderFailure/);
     expect(source).toMatch(/onEnsureMathReady/);
+    expect(source).toMatch(/disableWorker:\s*true/);
     expect(source).toMatch(/onFirstPageRender\?\.\(\);/);
     expect(source).toMatch(/onRenderFailure\?\.\(error\);/);
     expect(source).toMatch(/const activationSnapshot = await onEnsureMathReady\?\.\(\);/);

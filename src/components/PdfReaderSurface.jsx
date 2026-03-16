@@ -95,7 +95,9 @@ export default function PdfReaderSurface({
         }
 
         loadingTask = pdfjs.getDocument({
-          url: pdfState.blobUrl
+          // Dedicated pdf.js module workers were stalling without ever resolving the first page.
+          url: pdfState.blobUrl,
+          disableWorker: true
         });
         documentHandle = await loadingTask.promise;
 
