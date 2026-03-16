@@ -16,7 +16,6 @@ const MATH_REASON_MESSAGES = Object.freeze({
   gpu_unavailable: "PDF math copy requires navigator.gpu.",
   device_memory_too_low: "PDF math copy requires at least 8 GB of device memory.",
   hardware_concurrency_too_low: "PDF math copy requires at least 8 CPU threads.",
-  storage_free_too_low: "PDF math copy requires at least 1 GB of free storage.",
   models_load_failed: "PDF math copy could not be prepared on this device.",
   worker_error: "PDF math copy could not be prepared on this device.",
   benchmark_too_slow: "PDF math copy was disabled because setup exceeded 5 seconds.",
