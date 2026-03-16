@@ -197,9 +197,10 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/onFirstPageRender/);
     expect(source).toMatch(/onRenderFailure/);
     expect(source).toMatch(/onEnsureMathReady/);
-    expect(source).toMatch(/disableWorker:\s*true/);
-    expect(source).toMatch(/onFirstPageRender\?\.\(\);/);
-    expect(source).toMatch(/onRenderFailure\?\.\(error\);/);
+    expect(source).toMatch(/onFirstPageRenderRef\.current = onFirstPageRender;/);
+    expect(source).toMatch(/onRenderFailureRef\.current = onRenderFailure;/);
+    expect(source).toMatch(/onFirstPageRenderRef\.current\?\.\(\);/);
+    expect(source).toMatch(/onRenderFailureRef\.current\?\.\(error\);/);
     expect(source).toMatch(/const activationSnapshot = await onEnsureMathReady\?\.\(\);/);
   });
 
@@ -240,5 +241,16 @@ describe("PdfReaderSurface callback and toast contract", () => {
       tone: "pending",
       text: PDF_SURFACE_STATUS_MESSAGES.preparing
     });
+  });
+
+  it("tags rendered canvases with stable page metadata and full-page request bounds", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/canvas\.dataset\.pageNumber = String\(page\.pageNumber\);/);
+    expect(source).toMatch(/canvas\.dataset\.renderedWidth = String\(canvas\.width\);/);
+    expect(source).toMatch(/canvas\.dataset\.renderedHeight = String\(canvas\.height\);/);
+    expect(source).toMatch(/pageShell\.dataset\.pdfPage = "true";/);
+    expect(source).toMatch(/pageShell\.dataset\.pageNumber = String\(page\.pageNumber\);/);
+    expect(source).toMatch(/cropRect: \{[\s\S]*width: canvas\.width,[\s\S]*height: canvas\.height[\s\S]*\}/);
   });
 });
