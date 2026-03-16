@@ -1181,6 +1181,19 @@ input {
   box-shadow: 0 16px 30px rgba(74, 44, 29, 0.08);
 }
 
+.pdf-page-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 18rem;
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 236, 226, 0.88));
+  color: rgba(74, 44, 29, 0.72);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
 .pdf-page-canvas {
   display: block;
   width: 100%;
