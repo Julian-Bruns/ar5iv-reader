@@ -1,5 +1,6 @@
 import {
   createPdfMathError,
+  createPdfMathLayoutResult,
   createPdfMathResult,
   PDF_MATH_BENCHMARK_THRESHOLD_MS,
   PDF_MATH_MODEL_REVISION
@@ -35,6 +36,11 @@ async function handleWorkerMessage(message) {
 
     if (type === "RUN_BENCHMARK") {
       await handleBenchmark(requestId, payload);
+      return;
+    }
+
+    if (type === "DETECT_LAYOUT") {
+      await handleDetectLayout(requestId, payload);
       return;
     }
 
@@ -84,6 +90,7 @@ async function handleLoadModels(requestId, payload) {
         payload: {
           stage: progress.stage,
           modelId: progress.modelId,
+          filename: progress.filename,
           loadedBytes: Number(progress.loadedBytes || 0),
           totalBytes:
             progress.totalBytes == null || Number.isNaN(Number(progress.totalBytes))
@@ -100,6 +107,23 @@ async function handleLoadModels(requestId, payload) {
     payload: {
       stage: "models"
     }
+  });
+}
+
+async function handleDetectLayout(requestId, payload) {
+  if (!workerState.modelsLoaded || !workerState.runtime) {
+    throw createPdfMathError("pdf_not_ready", "PDF math models are not ready.", false);
+  }
+
+  const result = await workerState.runtime.detectFormulaRegions({
+    imageBitmap: payload.imageBitmap,
+    cropRect: payload.cropRect
+  });
+
+  postMessage({
+    type: "LAYOUT_RESULT",
+    requestId,
+    payload: createPdfMathLayoutResult(result)
   });
 }
 

@@ -13,7 +13,7 @@ import {
 } from "./urlManifest";
 
 const BACKUP_FORMAT = "ar5iv-reader-backup";
-const BACKUP_SCHEMA_VERSION = 2;
+const BACKUP_SCHEMA_VERSION = 3;
 
 export async function exportPaperHtml(paperId) {
   const record = await getPaper(paperId);

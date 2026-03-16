@@ -9,15 +9,25 @@ const dbMocks = vi.hoisted(() => ({
   }
 }));
 
+const modelStoreMocks = vi.hoisted(() => ({
+  getMlModelMetaRecord: vi.fn(async () => null)
+}));
+
 vi.mock("./db", () => ({
   setSetting: dbMocks.setSetting,
   SETTING_KEYS: dbMocks.SETTING_KEYS
+}));
+
+vi.mock("./pdfMathModelStore", () => ({
+  getMlModelMetaRecord: modelStoreMocks.getMlModelMetaRecord
 }));
 
 describe("pdfMathService", () => {
   beforeEach(() => {
     vi.resetModules();
     dbMocks.setSetting.mockReset();
+    modelStoreMocks.getMlModelMetaRecord.mockReset();
+    modelStoreMocks.getMlModelMetaRecord.mockResolvedValue(null);
     installBrowserEnvironment();
     installWorkerScenario({
       INIT(message) {
@@ -43,11 +53,13 @@ describe("pdfMathService", () => {
 
     expect(first).toEqual({
       phase: "ready",
+      installed: true,
       enabled: true,
       reason: "",
       benchmarkMs: 321,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
     expect(second).toEqual(first);
     expect(service.status()).toEqual(first);
@@ -193,11 +205,13 @@ describe("pdfMathService", () => {
 
     expect(result).toEqual({
       phase: "disabled",
+      installed: false,
       enabled: false,
       reason,
       benchmarkMs: null,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
     expect(FakeWorker.instances).toHaveLength(0);
   });
@@ -278,11 +292,13 @@ describe("pdfMathService", () => {
 
     expect(result).toEqual({
       phase: "disabled",
+      installed: true,
       enabled: false,
       reason: "benchmark_too_slow",
       benchmarkMs: 5001,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
   });
 
@@ -308,7 +324,7 @@ describe("pdfMathService", () => {
     });
 
     const service = await import("./pdfMathService");
-    await service.acquire();
+    await service.ensureReady();
 
     const pending = service.detectAndRecognize({
       imageBitmap: { tag: "bitmap" },
@@ -383,7 +399,7 @@ describe("pdfMathService", () => {
     });
 
     const service = await import("./pdfMathService");
-    await service.acquire();
+    await service.ensureReady();
 
     await expect(
       service.detectAndRecognize({
@@ -404,7 +420,11 @@ describe("pdfMathService", () => {
       reason: ""
     });
 
-    expect(FakeWorker.instances[0].postCalls.at(-1)).toEqual({
+    expect(
+      FakeWorker.instances[0].postCalls.find(
+        (entry) => entry.message?.type === "DETECT_AND_RECOGNIZE"
+      )
+    ).toEqual({
       message: {
         type: "DETECT_AND_RECOGNIZE",
         requestId: expect.any(String),

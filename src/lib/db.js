@@ -1,13 +1,14 @@
 import { collectAssetUrls, fetchAssetRecords } from "./assets";
 
 const DB_NAME = "ar5iv-reader";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const PAPER_STORE = "papers";
 const ASSET_STORE = "assets";
 const SETTING_STORE = "settings";
 const ML_MODEL_STORE = "mlModels";
 const ML_MODEL_META_STORE = "mlModelMeta";
-const SNAPSHOT_SCHEMA_VERSION = 2;
+const PDF_RENDER_CACHE_STORE = "pdfRenderCache";
+const SNAPSHOT_SCHEMA_VERSION = 3;
 const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled"]);
 
 export const SETTING_KEYS = Object.freeze({
@@ -67,6 +68,25 @@ export async function getAssetRecordsForPaper(paperId) {
   );
 }
 
+export async function getAssetRecord(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ASSET_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(ASSET_STORE).get(key));
+}
+
+export async function putAssetRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([ASSET_STORE], "readwrite");
+  transaction.objectStore(ASSET_STORE).put({
+    key: String(record?.key || "").trim(),
+    paperId: String(record?.paperId || "").trim(),
+    assetUrl: String(record?.assetUrl || "").trim(),
+    contentType: String(record?.contentType || "").trim(),
+    blob: record?.blob instanceof Blob ? record.blob : new Blob([])
+  });
+  await transactionToPromise(transaction);
+}
+
 export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
   const savedAt = new Date().toISOString();
   const existing = await getRawPaperRecord(sessionPaper.id);
@@ -76,6 +96,7 @@ export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
 
   const paperRecord = {
     id: sessionPaper.id,
+    contentType: "html",
     sourceUrl: sessionPaper.sourceUrl,
     ar5ivUrl: sessionPaper.ar5ivUrl,
     title: String(sessionPaper.title || sessionPaper.titleHint || sessionPaper.id).trim(),
@@ -86,7 +107,11 @@ export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
     deletedAtMs: 0,
     deletedAt: "",
     html: sessionPaper.html,
-    assetUrls
+    assetUrls,
+    pdfUrl: "",
+    pdfFingerprint: "",
+    pdfByteLength: 0,
+    pdfFetchStatus: ""
   };
 
   const database = await openDatabase();
@@ -104,6 +129,57 @@ export async function savePaper(sessionPaper, { deviceId = "local" } = {}) {
   return normalizePaperRecord(paperRecord);
 }
 
+export async function savePdfPaper(sessionPaper, { deviceId = "local" } = {}) {
+  const savedAt = new Date().toISOString();
+  const existing = await getRawPaperRecord(sessionPaper.id);
+  const revisionMs = await claimNextRevisionMs();
+  const pdfBlob = sessionPaper?.pdfState?.blob;
+  const pdfUrl = String(sessionPaper?.pdfUrl || "").trim();
+  if (!(pdfBlob instanceof Blob) || !pdfUrl) {
+    throw new Error("PDF fallback paper is missing its PDF blob.");
+  }
+
+  const pdfFingerprint =
+    String(sessionPaper?.pdfState?.pdfFingerprint || "").trim() || (await hashBlob(pdfBlob));
+  const paperRecord = {
+    id: sessionPaper.id,
+    contentType: "pdf",
+    sourceUrl: sessionPaper.sourceUrl,
+    ar5ivUrl: "",
+    title: String(sessionPaper.title || sessionPaper.titleHint || sessionPaper.id).trim(),
+    savedAt: existing?.savedAt || savedAt,
+    updatedAt: new Date(revisionMs).toISOString(),
+    revisionMs,
+    revisionDeviceId: deviceId,
+    deletedAtMs: 0,
+    deletedAt: "",
+    html: "",
+    assetUrls: [],
+    pdfUrl,
+    pdfFingerprint,
+    pdfByteLength: Number(pdfBlob.size || 0),
+    pdfFetchStatus: "ready"
+  };
+
+  const database = await openDatabase();
+  const transaction = database.transaction([PAPER_STORE, ASSET_STORE], "readwrite");
+  const paperStore = transaction.objectStore(PAPER_STORE);
+  const assetStore = transaction.objectStore(ASSET_STORE);
+
+  await deleteAssetRows(assetStore, sessionPaper.id);
+  paperStore.put(paperRecord);
+  assetStore.put({
+    key: `${sessionPaper.id}::${pdfUrl}`,
+    paperId: sessionPaper.id,
+    assetUrl: pdfUrl,
+    contentType: pdfBlob.type || "application/pdf",
+    blob: pdfBlob
+  });
+
+  await transactionToPromise(transaction);
+  return normalizePaperRecord(paperRecord);
+}
+
 export async function deletePaper(id, { deviceId = "local" } = {}) {
   const existing = await getRawPaperRecord(id);
   const deletedAtMs = await claimNextRevisionMs();
@@ -116,6 +192,7 @@ export async function deletePaper(id, { deviceId = "local" } = {}) {
   await deleteAssetRows(assetStore, id);
   paperStore.put({
     id,
+    contentType: existing?.contentType || "html",
     title: existing?.title || id,
     sourceUrl: existing?.sourceUrl || "",
     ar5ivUrl: existing?.ar5ivUrl || "",
@@ -126,7 +203,11 @@ export async function deletePaper(id, { deviceId = "local" } = {}) {
     deletedAtMs,
     deletedAt,
     html: "",
-    assetUrls: []
+    assetUrls: [],
+    pdfUrl: existing?.pdfUrl || "",
+    pdfFingerprint: existing?.pdfFingerprint || "",
+    pdfByteLength: Number(existing?.pdfByteLength || 0),
+    pdfFetchStatus: ""
   });
   await transactionToPromise(transaction);
 }
@@ -237,6 +318,63 @@ export async function putMlModelMetaRecord(record) {
   await transactionToPromise(transaction);
 }
 
+export async function putPaperRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([PAPER_STORE], "readwrite");
+  transaction.objectStore(PAPER_STORE).put(denormalizePaperRecord(normalizePaperRecord(record)));
+  await transactionToPromise(transaction);
+}
+
+export async function getPdfRenderCacheRecord(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction([PDF_RENDER_CACHE_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(PDF_RENDER_CACHE_STORE).get(key));
+}
+
+export async function listPdfRenderCacheRecords({ pdfFingerprint = "", paperId = "" } = {}) {
+  const database = await openDatabase();
+  const transaction = database.transaction([PDF_RENDER_CACHE_STORE], "readonly");
+  const store = transaction.objectStore(PDF_RENDER_CACHE_STORE);
+
+  if (pdfFingerprint) {
+    const records = await requestToPromise(
+      store.index("pdfFingerprint").getAll(IDBKeyRange.only(pdfFingerprint))
+    );
+    return paperId ? records.filter((record) => record.paperId === paperId) : records;
+  }
+
+  if (paperId) {
+    return requestToPromise(store.index("paperId").getAll(IDBKeyRange.only(paperId)));
+  }
+
+  return requestToPromise(store.getAll());
+}
+
+export async function putPdfRenderCacheRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([PDF_RENDER_CACHE_STORE], "readwrite");
+  transaction.objectStore(PDF_RENDER_CACHE_STORE).put({
+    key: String(record?.key || "").trim(),
+    paperId: String(record?.paperId || "").trim(),
+    pdfFingerprint: String(record?.pdfFingerprint || "").trim(),
+    pageNumber: Number(record?.pageNumber || 0),
+    width: Number(record?.width || 0),
+    height: Number(record?.height || 0),
+    quality: String(record?.quality || "").trim(),
+    blob: record?.blob instanceof Blob ? record.blob : new Blob([]),
+    byteSize: Number(record?.byteSize || record?.blob?.size || 0),
+    updatedAt: String(record?.updatedAt || new Date().toISOString())
+  });
+  await transactionToPromise(transaction);
+}
+
+export async function deletePdfRenderCacheRecord(key) {
+  const database = await openDatabase();
+  const transaction = database.transaction([PDF_RENDER_CACHE_STORE], "readwrite");
+  transaction.objectStore(PDF_RENDER_CACHE_STORE).delete(key);
+  await transactionToPromise(transaction);
+}
+
 export async function getPaperManifestEntries() {
   const records = await listAllPaperRecords();
   return Promise.all(
@@ -245,16 +383,20 @@ export async function getPaperManifestEntries() {
       .sort(compareById)
       .map(async (record) => ({
         id: record.id,
+        contentType: record.contentType,
         revisionMs: record.revisionMs,
         revisionDeviceId: record.revisionDeviceId,
         deletedAtMs: record.deletedAtMs,
         assetKeys: record.assetUrls.map((assetUrl) => `${record.id}::${assetUrl}`),
-        htmlHash: record.deletedAtMs ? "" : await hashText(record.html || "")
+        htmlHash: record.deletedAtMs ? "" : await hashText(record.html || ""),
+        pdfByteLength: Number(record.pdfByteLength || 0),
+        pdfFingerprint: String(record.pdfFingerprint || ""),
+        pdfFetchStatus: String(record.pdfFetchStatus || "")
       }))
   );
 }
 
-export async function exportPaperTransferPayload(paperId) {
+export async function exportPaperTransferPayload(paperId, { includeAssets = true } = {}) {
   const database = await openDatabase();
   const transaction = database.transaction([PAPER_STORE, ASSET_STORE], "readonly");
   const paperRecord = await requestToPromise(transaction.objectStore(PAPER_STORE).get(paperId));
@@ -263,7 +405,7 @@ export async function exportPaperTransferPayload(paperId) {
     throw new Error(`Paper ${paperId} was not found.`);
   }
 
-  const assetRecords = getDeletedAtMs(paperRecord)
+  const assetRecords = !includeAssets || getDeletedAtMs(paperRecord)
     ? []
     : await requestToPromise(
         transaction.objectStore(ASSET_STORE).index("paperId").getAll(IDBKeyRange.only(paperId))
@@ -482,6 +624,26 @@ function openDatabase() {
             mlModelMetaStore.createIndex("revision", "revision", { unique: false });
           }
         }
+
+        if (!database.objectStoreNames.contains(PDF_RENDER_CACHE_STORE)) {
+          const pdfRenderCacheStore = database.createObjectStore(PDF_RENDER_CACHE_STORE, {
+            keyPath: "key"
+          });
+          pdfRenderCacheStore.createIndex("paperId", "paperId", { unique: false });
+          pdfRenderCacheStore.createIndex("pdfFingerprint", "pdfFingerprint", {
+            unique: false
+          });
+        } else if (transaction) {
+          const pdfRenderCacheStore = transaction.objectStore(PDF_RENDER_CACHE_STORE);
+          if (!pdfRenderCacheStore.indexNames.contains("paperId")) {
+            pdfRenderCacheStore.createIndex("paperId", "paperId", { unique: false });
+          }
+          if (!pdfRenderCacheStore.indexNames.contains("pdfFingerprint")) {
+            pdfRenderCacheStore.createIndex("pdfFingerprint", "pdfFingerprint", {
+              unique: false
+            });
+          }
+        }
       };
 
       request.onsuccess = () => resolve(request.result);
@@ -510,6 +672,7 @@ function normalizePaperRecord(record) {
 
   return {
     id: String(record.id || "").trim(),
+    contentType: normalizeContentType(record.contentType),
     title: String(record.title || record.id || "").trim(),
     sourceUrl: String(record.sourceUrl || "").trim(),
     ar5ivUrl: String(record.ar5ivUrl || "").trim(),
@@ -520,13 +683,18 @@ function normalizePaperRecord(record) {
     deletedAtMs,
     deletedAt: deletedAtMs ? new Date(deletedAtMs).toISOString() : "",
     html: deletedAtMs ? "" : String(record.html || ""),
-    assetUrls: deletedAtMs ? [] : Array.isArray(record.assetUrls) ? [...record.assetUrls] : []
+    assetUrls: deletedAtMs ? [] : Array.isArray(record.assetUrls) ? [...record.assetUrls] : [],
+    pdfUrl: deletedAtMs ? "" : String(record.pdfUrl || "").trim(),
+    pdfFingerprint: deletedAtMs ? "" : String(record.pdfFingerprint || "").trim(),
+    pdfByteLength: deletedAtMs ? 0 : Number(record.pdfByteLength || 0),
+    pdfFetchStatus: deletedAtMs ? "" : normalizePdfFetchStatus(record.pdfFetchStatus)
   };
 }
 
 function denormalizePaperRecord(record) {
   return {
     id: record.id,
+    contentType: normalizeContentType(record.contentType),
     title: record.title,
     sourceUrl: record.sourceUrl,
     ar5ivUrl: record.ar5ivUrl,
@@ -537,7 +705,11 @@ function denormalizePaperRecord(record) {
     deletedAtMs: record.deletedAtMs || 0,
     deletedAt: record.deletedAt || "",
     html: record.deletedAtMs ? "" : record.html || "",
-    assetUrls: record.deletedAtMs ? [] : record.assetUrls || []
+    assetUrls: record.deletedAtMs ? [] : record.assetUrls || [],
+    pdfUrl: record.deletedAtMs ? "" : record.pdfUrl || "",
+    pdfFingerprint: record.deletedAtMs ? "" : record.pdfFingerprint || "",
+    pdfByteLength: record.deletedAtMs ? 0 : Number(record.pdfByteLength || 0),
+    pdfFetchStatus: record.deletedAtMs ? "" : normalizePdfFetchStatus(record.pdfFetchStatus)
   };
 }
 
@@ -714,4 +886,19 @@ async function hashText(text) {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
     .slice(0, 24);
+}
+
+async function hashBlob(blob) {
+  const buffer = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(buffer)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function normalizeContentType(value) {
+  return value === "pdf" ? "pdf" : "html";
+}
+
+function normalizePdfFetchStatus(value) {
+  return value === "pending" || value === "ready" || value === "error" ? value : "";
 }

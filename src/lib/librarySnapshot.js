@@ -1,4 +1,4 @@
-const SNAPSHOT_SCHEMA_VERSION = 2;
+const SNAPSHOT_SCHEMA_VERSION = 3;
 
 export function createEmptyLibrarySnapshot() {
   return {
@@ -87,6 +87,7 @@ function normalizeSnapshot(snapshot) {
       ? snapshot.papers
           .map((paper) => ({
             id: String(paper.id || "").trim(),
+            contentType: paper?.contentType === "pdf" ? "pdf" : "html",
             title: String(paper.title || paper.id || "").trim(),
             sourceUrl: String(paper.sourceUrl || "").trim(),
             ar5ivUrl: String(paper.ar5ivUrl || "").trim(),
@@ -110,7 +111,17 @@ function normalizeSnapshot(snapshot) {
                 ? []
                 : Array.isArray(paper.assetUrls)
                   ? [...paper.assetUrls].sort()
-                  : []
+                  : [],
+            pdfUrl: Number(paper.deletedAtMs || 0) || paper.deletedAt ? "" : String(paper.pdfUrl || "").trim(),
+            pdfFingerprint:
+              Number(paper.deletedAtMs || 0) || paper.deletedAt ? "" : String(paper.pdfFingerprint || "").trim(),
+            pdfByteLength: Number(paper.deletedAtMs || 0) || paper.deletedAt ? 0 : Number(paper.pdfByteLength || 0),
+            pdfFetchStatus:
+              Number(paper.deletedAtMs || 0) || paper.deletedAt
+                ? ""
+                : ["pending", "ready", "error"].includes(paper.pdfFetchStatus)
+                  ? paper.pdfFetchStatus
+                  : ""
           }))
           .filter((paper) => paper.id)
           .sort(compareById)

@@ -6,6 +6,7 @@ import {
 import { comparePaperVersions } from "./merge";
 
 const CHUNK_SIZE = 48 * 1024;
+const PDF_INLINE_SYNC_LIMIT_BYTES = 50 * 1024 * 1024;
 
 export async function runPairSession(session, { localDevice, onPaired }) {
   const isInitiator = session.initiator;
@@ -157,17 +158,28 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
         return;
       }
 
-      for (const remotePaper of remoteManifest) {
+      const papersToRequest = remoteManifest.filter((remotePaper) => {
         const localPaper = localManifest.find((entry) => entry.id === remotePaper.id);
-        if (!localPaper || comparePaperVersions(remotePaper, localPaper) > 0) {
-          if (!requestedFromRemote.has(remotePaper.id)) {
-            requestedFromRemote.add(remotePaper.id);
-            session.sendJson({
-              type: "request-paper",
-              paperId: remotePaper.id
-            });
-          }
+        return !localPaper || comparePaperVersions(remotePaper, localPaper) > 0;
+      });
+      const totalPdfBytes = papersToRequest.reduce(
+        (sum, paper) =>
+          sum + (paper.contentType === "pdf" ? Number(paper.pdfByteLength || 0) : 0),
+        0
+      );
+      const includePdfAssets = totalPdfBytes <= PDF_INLINE_SYNC_LIMIT_BYTES;
+
+      for (const remotePaper of papersToRequest) {
+        if (requestedFromRemote.has(remotePaper.id)) {
+          continue;
         }
+
+        requestedFromRemote.add(remotePaper.id);
+        session.sendJson({
+          type: "request-paper",
+          paperId: remotePaper.id,
+          includeAssets: includePdfAssets || remotePaper.contentType !== "pdf"
+        });
       }
 
       maybeComplete();
@@ -251,7 +263,15 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
       }
 
       if (message.type === "request-paper") {
-        const transfer = await exportPaperTransferPayload(message.paperId);
+        const transfer = await exportPaperTransferPayload(message.paperId, {
+          includeAssets: message.includeAssets !== false
+        });
+        if (message.includeAssets === false && transfer.paper?.contentType === "pdf") {
+          transfer.paper = {
+            ...transfer.paper,
+            pdfFetchStatus: "pending"
+          };
+        }
         const serialized = JSON.stringify(transfer);
         const chunks = splitIntoChunks(serialized, CHUNK_SIZE);
         const transferId = crypto.randomUUID();

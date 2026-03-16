@@ -97,12 +97,34 @@ export async function createPdfMathRuntime({ modelRevision = PDF_MATH_MODEL_REVI
       };
     },
 
+    async detectFormulaRegions({ imageBitmap, cropRect }) {
+      assertModelsReady(state);
+      assertActive(state);
+
+      const sourceCanvas = imageBitmapToCanvas(imageBitmap);
+
+      try {
+        const detections = await detectFormulaBoxes(state.detector.session, sourceCanvas);
+        return {
+          bounds: detections.map((detection) => translateBounds(detection.bounds, cropRect))
+        };
+      } catch (error) {
+        throw createPdfMathError(
+          error?.code,
+          error?.message || "PDF math layout detection failed.",
+          Boolean(error?.fatal)
+        );
+      } finally {
+        imageBitmap?.close?.();
+      }
+    },
+
     async detectAndRecognize({ imageBitmap, clickPoint, cropRect }) {
       assertModelsReady(state);
       assertActive(state);
 
-      const sourceCanvas = cropImageBitmap(imageBitmap, cropRect);
-      const click = normalizeClickPoint(clickPoint, cropRect);
+      const sourceCanvas = imageBitmapToCanvas(imageBitmap);
+      const click = normalizeClickPoint(clickPoint, sourceCanvas);
 
       try {
         const detections = await detectFormulaBoxes(state.detector.session, sourceCanvas);
@@ -188,6 +210,7 @@ async function ensureModelAssets(entry, onProgress) {
       onProgress?.({
         stage: "cache",
         modelId: entry.modelId,
+        filename: descriptor.filename,
         loadedBytes: descriptor.size,
         totalBytes: descriptor.size
       });
@@ -262,7 +285,15 @@ async function fetchModelFile(descriptor, modelId, onProgress) {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const blob = await response.blob();
+      const blob = await readBlobWithProgress(response, (loadedBytes, totalBytes) => {
+        onProgress?.({
+          stage: "download",
+          modelId,
+          filename: descriptor.filename,
+          loadedBytes,
+          totalBytes
+        });
+      }, descriptor.size);
       if (Number(blob.size) !== descriptor.size) {
         throw new Error(`Unexpected file size for ${descriptor.filename}.`);
       }
@@ -271,13 +302,6 @@ async function fetchModelFile(descriptor, modelId, onProgress) {
       if (digest !== descriptor.sha256) {
         throw new Error(`Checksum mismatch for ${descriptor.filename}.`);
       }
-
-      onProgress?.({
-        stage: "download",
-        modelId,
-        loadedBytes: descriptor.size,
-        totalBytes: descriptor.size
-      });
       return blob;
     } catch (error) {
       lastError = error;
@@ -289,6 +313,33 @@ async function fetchModelFile(descriptor, modelId, onProgress) {
     `Failed to fetch ${descriptor.filename}: ${lastError?.message || "unknown error"}.`,
     false
   );
+}
+
+async function readBlobWithProgress(response, onProgress, fallbackTotalBytes) {
+  const totalBytes =
+    Number(response.headers?.get?.("content-length") || fallbackTotalBytes || 0) || fallbackTotalBytes;
+  if (!response.body?.getReader) {
+    const blob = await response.blob();
+    onProgress?.(blob.size, totalBytes || blob.size);
+    return blob;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loadedBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (value) {
+      chunks.push(value);
+      loadedBytes += value.byteLength;
+      onProgress?.(loadedBytes, totalBytes || fallbackTotalBytes || loadedBytes);
+    }
+  }
+
+  return new Blob(chunks);
 }
 
 async function createDetectorRuntime(files) {
@@ -405,9 +456,10 @@ async function runDecoderStep(decoderSession, encoderHiddenStates, tokenIds) {
   };
 }
 
-function cropImageBitmap(imageBitmap, cropRect) {
-  const rect = normalizeRect(cropRect, imageBitmap?.width || 0, imageBitmap?.height || 0);
-  const canvas = new OffscreenCanvas(rect.width, rect.height);
+function imageBitmapToCanvas(imageBitmap) {
+  const width = Math.max(1, Number(imageBitmap?.width || 0));
+  const height = Math.max(1, Number(imageBitmap?.height || 0));
+  const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("2d", {
     alpha: false,
     willReadFrequently: true
@@ -417,18 +469,8 @@ function cropImageBitmap(imageBitmap, cropRect) {
   }
 
   context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, rect.width, rect.height);
-  context.drawImage(
-    imageBitmap,
-    rect.x,
-    rect.y,
-    rect.width,
-    rect.height,
-    0,
-    0,
-    rect.width,
-    rect.height
-  );
+  context.fillRect(0, 0, width, height);
+  context.drawImage(imageBitmap, 0, 0, width, height);
   return canvas;
 }
 
@@ -657,10 +699,10 @@ function translateBounds(bounds, cropRect) {
   };
 }
 
-function normalizeClickPoint(clickPoint, cropRect) {
+function normalizeClickPoint(clickPoint, sourceCanvas) {
   return {
-    x: Number(clickPoint?.x || 0) - Number(cropRect?.x || 0),
-    y: Number(clickPoint?.y || 0) - Number(cropRect?.y || 0)
+    x: clamp(Number(clickPoint?.x || 0), 0, sourceCanvas.width),
+    y: clamp(Number(clickPoint?.y || 0), 0, sourceCanvas.height)
   };
 }
 

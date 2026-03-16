@@ -33,7 +33,10 @@ export const PDF_MATH_COPY_DISABLE_NOTICE_SHOWN_KEY =
 
 export const INITIAL_PDF_FALLBACK_STATE = Object.freeze({
   blobUrl: "",
+  blob: null,
   relay: "",
+  pdfFingerprint: "",
+  pdfByteLength: 0,
   loadStatus: "idle",
   mathCopyStatus: "pending",
   mathCopyReason: ""

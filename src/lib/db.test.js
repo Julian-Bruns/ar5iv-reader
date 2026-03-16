@@ -5,7 +5,7 @@ vi.mock("./assets", () => ({
   fetchAssetRecords: vi.fn(async () => [])
 }));
 
-describe("db v5 upgrade", () => {
+describe("db v6 upgrade", () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -146,7 +146,7 @@ describe("db v5 upgrade", () => {
     const snapshot = await db.exportLibrarySnapshot();
 
     expect(snapshot).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: expect.any(String),
       papers: [
         expect.objectContaining({

@@ -272,7 +272,7 @@ export default function ReaderView({
           >
             <BackIcon />
           </button>
-          {paper?.mode === "session" && paper?.view === "html" ? (
+          {paper?.mode === "session" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
             </button>
@@ -302,7 +302,7 @@ export default function ReaderView({
                       Open PDF
                     </a>
                   ) : null}
-                  {paper?.mode === "saved" ? (
+                  {paper?.mode === "saved" && paper?.view === "html" ? (
                     <button
                       role="menuitem"
                       type="button"

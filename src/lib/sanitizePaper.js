@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 
-const purifier = DOMPurify(window);
+let purifier = null;
 const UNSAFE_TAGS = [
   "script",
   "iframe",
@@ -155,7 +155,7 @@ export function sanitizePaperHtml(rawHtml, { baseUrl = "" } = {}) {
   absolutizeNodeUrls(fragment, baseUrl);
   tunePaperMarkup(fragment);
 
-  const sanitizedHtml = purifier.sanitize(
+  const sanitizedHtml = getPurifier().sanitize(
     fragment.outerHTML,
     createSanitizeOptions({
       html: true,
@@ -300,7 +300,7 @@ function ensurePurifierHooks() {
     return;
   }
 
-  purifier.addHook("uponSanitizeAttribute", (node, data) => {
+  getPurifier().addHook("uponSanitizeAttribute", (node, data) => {
     if (data.attrName.startsWith("on")) {
       data.keepAttr = false;
       return;
@@ -347,7 +347,7 @@ function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
 
   for (let index = 0; index < count; index += 1) {
     const sanitizedForeignObject = sanitizedForeignObjects[index];
-    sanitizedForeignObject.innerHTML = purifier.sanitize(
+    sanitizedForeignObject.innerHTML = getPurifier().sanitize(
       sourceForeignObjects[index].innerHTML,
       createSanitizeOptions({
         html: true,
@@ -357,6 +357,16 @@ function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
   }
 
   return sanitizedRoot.outerHTML;
+}
+
+function getPurifier() {
+  if (!purifier) {
+    if (!globalThis.window) {
+      throw new Error("DOMPurify requires a browser window.");
+    }
+    purifier = DOMPurify(globalThis.window);
+  }
+  return purifier;
 }
 
 function cleanPaperTitle(value) {

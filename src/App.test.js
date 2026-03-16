@@ -21,11 +21,11 @@ describe("App PDF fallback integration", () => {
     expect(source).not.toMatch(/void pdfMathService\.prefetch\(\)/);
   });
 
-  it("only acquires the PDF math runtime through the first-click activation helper", () => {
+  it("only initializes the PDF math runtime through the first-click activation helper", () => {
     const source = fs.readFileSync(appPath, "utf8");
 
     expect(source).toMatch(/async function ensurePdfMathReady\(tabKey\)/);
-    expect(source).toMatch(/const acquirePromise = Promise\.resolve\(pdfMathService\.acquire\(\)\)/);
+    expect(source).toMatch(/const acquirePromise = Promise\.resolve\(pdfMathService\.ensureReady\(\)\)/);
     expect(source).toMatch(/onPdfMathActivationRequest=\{\(\) => ensurePdfMathReady\(activeTabKey\)\}/);
   });
 
