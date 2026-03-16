@@ -14,11 +14,19 @@ describe("App PDF fallback integration", () => {
     expect(source.match(/primePdfFallbackPaper\(activeRouteTab\.key, nextPaper\);/g)).toHaveLength(2);
   });
 
-  it("starts blob preloading and math-service prefetch from the helper", () => {
+  it("starts blob preloading without eagerly warming the PDF math runtime", () => {
     const source = fs.readFileSync(appPath, "utf8");
 
     expect(source).toMatch(/void fetchBlobWithFallback\(paper\.pdfUrl\)/);
-    expect(source).toMatch(/void pdfMathService\.prefetch\(\)/);
+    expect(source).not.toMatch(/void pdfMathService\.prefetch\(\)/);
+  });
+
+  it("only acquires the PDF math runtime through the first-click activation helper", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/async function ensurePdfMathReady\(tabKey\)/);
+    expect(source).toMatch(/const acquirePromise = Promise\.resolve\(pdfMathService\.acquire\(\)\)/);
+    expect(source).toMatch(/onPdfMathActivationRequest=\{\(\) => ensurePdfMathReady\(activeTabKey\)\}/);
   });
 
   it("wires ReaderView PDF render callbacks back into App-owned pdfState", () => {

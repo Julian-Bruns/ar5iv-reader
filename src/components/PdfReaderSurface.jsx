@@ -14,6 +14,7 @@ export default function PdfReaderSurface({
   paper,
   onFirstPageRender,
   onRenderFailure,
+  onEnsureMathReady,
   onCopySuccess,
   onCopyFailure
 }) {
@@ -157,21 +158,43 @@ export default function PdfReaderSurface({
     : pdfState;
   const status = getPdfSurfaceStatus(effectiveState, interactionState);
   const canRecognize = canRunPdfMathCopy(pdfState);
+  const canInitializeMathCopy =
+    pdfState.loadStatus === "ready" && pdfState.mathCopyStatus === "pending";
+  const canInteract = canRecognize || canInitializeMathCopy;
 
   const handleSurfaceClick = async (event) => {
     const target =
       event.target instanceof Element ? event.target.closest("[data-pdf-page-canvas='true']") : null;
-    if (!(target instanceof HTMLCanvasElement) || !canRecognize) {
+    if (!(target instanceof HTMLCanvasElement) || !canInteract) {
       return;
     }
 
-    setInteractionState({
-      loadStatus: pdfState.loadStatus,
-      mathCopyStatus: "running",
-      mathCopyReason: ""
-    });
-
     try {
+      if (!canRecognize) {
+        setInteractionState({
+          loadStatus: pdfState.loadStatus,
+          mathCopyStatus: "pending",
+          mathCopyReason: "",
+          activating: true
+        });
+
+        const activationSnapshot = await onEnsureMathReady?.();
+        if (!activationSnapshot?.enabled || activationSnapshot?.phase !== "ready") {
+          setInteractionState({
+            loadStatus: pdfState.loadStatus,
+            mathCopyStatus: "disabled",
+            mathCopyReason: activationSnapshot?.reason || "worker_error"
+          });
+          return;
+        }
+      }
+
+      setInteractionState({
+        loadStatus: pdfState.loadStatus,
+        mathCopyStatus: "running",
+        mathCopyReason: ""
+      });
+
       const request = await createRecognitionRequest(target, event);
       const result = await pdfMathService.detectAndRecognize(request);
 
@@ -234,7 +257,7 @@ export default function PdfReaderSurface({
       {pdfState.blobUrl ? (
         <div
           ref={pagesRef}
-          className={`pdf-surface-pages${canRecognize ? " pdf-surface-pages--interactive" : ""}`}
+          className={`pdf-surface-pages${canInteract ? " pdf-surface-pages--interactive" : ""}`}
           onClick={(event) => {
             void handleSurfaceClick(event);
           }}

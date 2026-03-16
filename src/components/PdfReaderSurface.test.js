@@ -196,8 +196,10 @@ describe("PdfReaderSurface callback and toast contract", () => {
 
     expect(source).toMatch(/onFirstPageRender/);
     expect(source).toMatch(/onRenderFailure/);
+    expect(source).toMatch(/onEnsureMathReady/);
     expect(source).toMatch(/onFirstPageRender\?\.\(\);/);
     expect(source).toMatch(/onRenderFailure\?\.\(error\);/);
+    expect(source).toMatch(/const activationSnapshot = await onEnsureMathReady\?\.\(\);/);
   });
 
   it("limits toast traffic to interaction results", () => {
@@ -216,5 +218,26 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/className=\{`pdf-surface-status pdf-surface-status--\$\{status\.tone\}`\}/);
     expect(source).not.toMatch(/banner--error/);
     expect(source).not.toMatch(/banner--notice/);
+  });
+
+  it("shows an explicit preparing state only after activation starts", () => {
+    expect(
+      getPdfSurfaceStatus(
+        {
+          loadStatus: "ready",
+          mathCopyStatus: "pending",
+          mathCopyReason: ""
+        },
+        {
+          loadStatus: "ready",
+          mathCopyStatus: "pending",
+          mathCopyReason: "",
+          activating: true
+        }
+      )
+    ).toEqual({
+      tone: "pending",
+      text: PDF_SURFACE_STATUS_MESSAGES.preparing
+    });
   });
 });

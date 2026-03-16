@@ -23,4 +23,11 @@ describe("ReaderView Plan 4 integration", () => {
     expect(source).toMatch(/paper\?\.view !== "html"/);
     expect(source).toMatch(/installMathCopy\(articleRef\.current, \(message\) =>/);
   });
+
+  it("forwards PDF math activation requests to the surface", () => {
+    const source = fs.readFileSync(readerViewPath, "utf8");
+
+    expect(source).toMatch(/onPdfMathActivationRequest/);
+    expect(source).toMatch(/onEnsureMathReady=\{onPdfMathActivationRequest\}/);
+  });
 });
