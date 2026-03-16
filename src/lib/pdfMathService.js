@@ -232,21 +232,6 @@ async function runCapabilityChecks() {
     return createCapabilityResult(false, "hardware_concurrency_too_low");
   }
 
-  if (typeof globalThis.navigator?.storage?.estimate !== "function") {
-    return createCapabilityResult(false, "storage_free_too_low");
-  }
-
-  try {
-    const estimate = await globalThis.navigator.storage.estimate();
-    const quota = Number(estimate?.quota || 0);
-    const usage = Number(estimate?.usage || 0);
-    if (quota - usage < 1_000_000_000) {
-      return createCapabilityResult(false, "storage_free_too_low");
-    }
-  } catch {
-    return createCapabilityResult(false, "storage_free_too_low");
-  }
-
   return createCapabilityResult(true, "");
 }
 

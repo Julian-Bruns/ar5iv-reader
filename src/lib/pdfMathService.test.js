@@ -184,16 +184,6 @@ describe("pdfMathService", () => {
         globalThis.navigator.hardwareConcurrency = 4;
       },
       reason: "hardware_concurrency_too_low"
-    },
-    {
-      name: "free storage below threshold",
-      setup() {
-        globalThis.navigator.storage.estimate = vi.fn(async () => ({
-          quota: 1_100_000_000,
-          usage: 200_000_001
-        }));
-      },
-      reason: "storage_free_too_low"
     }
   ])("maps $name to the frozen disabled reason", async ({ setup, reason }) => {
     setup();

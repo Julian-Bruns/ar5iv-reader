@@ -145,13 +145,6 @@ describe("PdfReaderSurface status contract", () => {
       }
     ],
     [
-      "storage_free_too_low",
-      {
-        tone: "disabled",
-        text: PDF_SURFACE_STATUS_MESSAGES.storage_free_too_low
-      }
-    ],
-    [
       "worker_error",
       {
         tone: "disabled",

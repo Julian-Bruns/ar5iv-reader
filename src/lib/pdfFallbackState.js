@@ -18,7 +18,6 @@ export const PDF_MATH_COPY_REASONS = Object.freeze([
   "gpu_unavailable",
   "device_memory_too_low",
   "hardware_concurrency_too_low",
-  "storage_free_too_low",
   "models_load_failed",
   "benchmark_too_slow",
   "benchmark_failed",
