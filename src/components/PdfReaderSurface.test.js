@@ -259,6 +259,14 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).not.toMatch(/void maybeDetectFormulas\(nextPageNumber, renderJob\.canvas, \{/);
   });
 
+  it("marks the PDF ready when page 1 is restored from cache as well as freshly rendered", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/const notifyFirstPageRendered = \(pageNumber\) => \{/);
+    expect(source).toMatch(/bindCanvasClick\(restoredCanvas, handleSurfaceClickRef\);\s+notifyFirstPageRendered\(nextPageNumber\);/);
+    expect(source).toMatch(/void maybeDetectFormulasForCanvas\(nextPageNumber, renderJob\.canvas, \{[\s\S]*notifyFirstPageRendered\(nextPageNumber\);/);
+  });
+
   it("does not restart pdf.js rendering for unrelated paper object updates", () => {
     const source = fs.readFileSync(surfacePath, "utf8");
 

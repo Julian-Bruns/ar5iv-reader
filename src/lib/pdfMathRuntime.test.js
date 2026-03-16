@@ -96,7 +96,8 @@ const runtimeMocks = vi.hoisted(() => {
     meta: new Map(),
     fetchCalls: [],
     deletedKeys: [],
-    ortCreates: []
+    ortCreates: [],
+    ortCreateOptions: []
   };
 });
 
@@ -150,13 +151,15 @@ vi.mock("onnxruntime-web/webgpu", () => {
 
   return {
     env: {
-      wasm: {}
+      wasm: {},
+      webgpu: {}
     },
     Tensor,
     InferenceSession: {
-      create: vi.fn(async (buffer) => {
+      create: vi.fn(async (buffer, options) => {
         const tag = Buffer.from(buffer).toString("utf8");
         runtimeMocks.ortCreates.push(tag);
+        runtimeMocks.ortCreateOptions.push(options || null);
         if (tag === "detector-onnx") {
           return {
             async run() {
@@ -217,10 +220,23 @@ describe("pdfMathRuntime", () => {
     runtimeMocks.fetchCalls.length = 0;
     runtimeMocks.deletedKeys.length = 0;
     runtimeMocks.ortCreates.length = 0;
+    runtimeMocks.ortCreateOptions.length = 0;
 
     Object.defineProperty(globalThis, "crypto", {
       configurable: true,
       value: webcrypto
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        gpu: {
+          requestAdapter: vi.fn(async () => ({
+            requestDevice: vi.fn(async () => ({
+              label: "selected-device"
+            }))
+          }))
+        }
+      }
     });
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
@@ -296,6 +312,62 @@ describe("pdfMathRuntime", () => {
     ]);
 
     expect(runtimeMocks.fetchCalls).toHaveLength(0);
+  });
+
+  it("passes the selected WebGPU device into each ORT WebGPU session", async () => {
+    const fakeDevice = {
+      label: "selected-device"
+    };
+    const fakeAdapter = {
+      requestDevice: vi.fn(async () => fakeDevice)
+    };
+    globalThis.navigator.gpu.requestAdapter = vi.fn(async (options) =>
+      options?.powerPreference === "high-performance" ? fakeAdapter : null
+    );
+
+    const { createPdfMathRuntime } = await import("./pdfMathRuntime");
+    const runtime = await createPdfMathRuntime();
+    await runtime.loadModels([
+      {
+        role: "detector",
+        modelId: "breezedeus/pix2text-mfd"
+      },
+      {
+        role: "recognizer",
+        modelId: "breezedeus/pix2text-mfr"
+      }
+    ]);
+
+    expect(fakeAdapter.requestDevice).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.ortCreateOptions).toEqual([
+      {
+        executionProviders: [
+          {
+            name: "webgpu",
+            device: fakeDevice,
+            validationMode: "basic"
+          }
+        ]
+      },
+      {
+        executionProviders: [
+          {
+            name: "webgpu",
+            device: fakeDevice,
+            validationMode: "basic"
+          }
+        ]
+      },
+      {
+        executionProviders: [
+          {
+            name: "webgpu",
+            device: fakeDevice,
+            validationMode: "basic"
+          }
+        ]
+      }
+    ]);
   });
 
   it("repairs a corrupted cached file by deleting and refetching only that file", async () => {

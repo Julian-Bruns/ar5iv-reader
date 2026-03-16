@@ -1,6 +1,7 @@
 import { setSetting, SETTING_KEYS } from "./db";
 import { getPdfMathModelEntry } from "./pdfMathManifest";
 import { getMlModelMetaRecord } from "./pdfMathModelStore";
+import { probePdfMathWebGpu } from "./pdfMathOrt";
 import {
   buildPdfMathRequestId,
   createPdfMathError,
@@ -465,16 +466,11 @@ async function runCapabilityChecks() {
     return createCapabilityResult(false, "worker_unsupported");
   }
 
-  if (!globalThis.navigator?.gpu) {
+  const webgpuProbe = await probePdfMathWebGpu({
+    requireDevice: false
+  });
+  if (!webgpuProbe.enabled) {
     return createCapabilityResult(false, "gpu_unavailable");
-  }
-
-  if (Number(globalThis.navigator?.deviceMemory) < 8) {
-    return createCapabilityResult(false, "device_memory_too_low");
-  }
-
-  if (Number(globalThis.navigator?.hardwareConcurrency) < 8) {
-    return createCapabilityResult(false, "hardware_concurrency_too_low");
   }
 
   return createCapabilityResult(true, "");

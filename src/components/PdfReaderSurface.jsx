@@ -346,6 +346,7 @@ export default function PdfReaderSurface({
             }
           );
           bindCanvasClick(restoredCanvas, handleSurfaceClickRef);
+          notifyFirstPageRendered(nextPageNumber);
           activeRenderJob = null;
           await nextAnimationFrame();
           void processNextRender();
@@ -385,11 +386,7 @@ export default function PdfReaderSurface({
         void maybeDetectFormulasForCanvas(nextPageNumber, renderJob.canvas, {
           force: nextQuality === "high"
         });
-
-        if (nextPageNumber === 1 && !firstPageNotifiedRef.current) {
-          firstPageNotifiedRef.current = true;
-          onFirstPageRenderRef.current?.();
-        }
+        notifyFirstPageRendered(nextPageNumber);
 
         try {
           page.cleanup?.();
@@ -417,6 +414,15 @@ export default function PdfReaderSurface({
 
       await nextAnimationFrame();
       void processNextRender();
+    };
+
+    const notifyFirstPageRendered = (pageNumber) => {
+      if (pageNumber !== 1 || firstPageNotifiedRef.current) {
+        return;
+      }
+
+      firstPageNotifiedRef.current = true;
+      onFirstPageRenderRef.current?.();
     };
 
     const maybePromoteHoveredPage = () => {

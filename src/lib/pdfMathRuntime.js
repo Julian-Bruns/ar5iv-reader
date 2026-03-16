@@ -13,7 +13,11 @@ import {
   putMlModelMetaRecord,
   putMlModelRecord
 } from "./pdfMathModelStore";
-import { configurePdfMathOrtRuntime } from "./pdfMathOrt";
+import {
+  applyPdfMathOrtWebGpuSelection,
+  configurePdfMathOrtRuntime,
+  probePdfMathWebGpu
+} from "./pdfMathOrt";
 import { createPdfMathTokenizer } from "./pdfMathTokenizer";
 
 const DETECTION_INPUT_SIZE = 640;
@@ -25,6 +29,11 @@ const DEFAULT_BOUNDS_PADDING = 6;
 
 export async function createPdfMathRuntime({ modelRevision = PDF_MATH_MODEL_REVISION } = {}) {
   configurePdfMathOrtRuntime(ort);
+  const webgpuSelection = await probePdfMathWebGpu();
+  if (!webgpuSelection.enabled || !webgpuSelection.device) {
+    throw createPdfMathError("gpu_unavailable", "WebGPU is unavailable for PDF math.", false);
+  }
+  applyPdfMathOrtWebGpuSelection(ort, webgpuSelection);
 
   const manifest = getPdfMathModelManifest(modelRevision);
   if (!manifest) {
@@ -345,7 +354,13 @@ async function readBlobWithProgress(response, onProgress, fallbackTotalBytes) {
 async function createDetectorRuntime(files) {
   const buffer = await blobToArrayBuffer(files.get("mfd-v20240618.onnx"));
   const session = await ort.InferenceSession.create(buffer, {
-    executionProviders: ["webgpu"]
+    executionProviders: [
+      {
+        name: "webgpu",
+        device: await ort.env.webgpu.device,
+        validationMode: "basic"
+      }
+    ]
   });
   return {
     session
@@ -363,13 +378,25 @@ async function createRecognizerRuntime(files) {
   const encoderSession = await ort.InferenceSession.create(
     await blobToArrayBuffer(files.get("encoder_model.onnx")),
     {
-      executionProviders: ["webgpu"]
+      executionProviders: [
+        {
+          name: "webgpu",
+          device: await ort.env.webgpu.device,
+          validationMode: "basic"
+        }
+      ]
     }
   );
   const decoderSession = await ort.InferenceSession.create(
     await blobToArrayBuffer(files.get("decoder_model.onnx")),
     {
-      executionProviders: ["webgpu"]
+      executionProviders: [
+        {
+          name: "webgpu",
+          device: await ort.env.webgpu.device,
+          validationMode: "basic"
+        }
+      ]
     }
   );
 

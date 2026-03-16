@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyPdfMathOrtWebGpuSelection,
   configurePdfMathOrtRuntime,
   normalizePdfMathOrtWasmUrl,
+  probePdfMathWebGpu,
   resolvePdfMathOrtWasmUrl
 } from "./pdfMathOrt";
 
@@ -57,5 +59,56 @@ describe("pdfMathOrt", () => {
 
     expect(configurePdfMathOrtRuntime(ortNamespace, "")).toBe("");
     expect(ortNamespace.env.wasm).toEqual({});
+  });
+
+  it("probes WebGPU with a high-performance adapter first and requests a device", async () => {
+    const fakeDevice = {
+      label: "selected-device"
+    };
+    const fakeAdapter = {
+      requestDevice: async () => fakeDevice
+    };
+    const navigatorObject = {
+      gpu: {
+        requestAdapter: async (options) =>
+          options?.powerPreference === "high-performance" ? fakeAdapter : null
+      }
+    };
+
+    await expect(probePdfMathWebGpu({ navigatorObject })).resolves.toEqual({
+      enabled: true,
+      reason: "",
+      adapter: fakeAdapter,
+      device: fakeDevice,
+      powerPreference: "high-performance",
+      forceFallbackAdapter: false
+    });
+  });
+
+  it("applies the selected WebGPU device to the ORT environment", () => {
+    const selection = {
+      adapter: {
+        requestDevice() {}
+      },
+      device: {
+        label: "selected-device"
+      },
+      powerPreference: "high-performance",
+      forceFallbackAdapter: false
+    };
+    const ortNamespace = {
+      env: {
+        wasm: {},
+        webgpu: {}
+      }
+    };
+
+    expect(applyPdfMathOrtWebGpuSelection(ortNamespace, selection)).toBe(selection);
+    expect(ortNamespace.env.webgpu).toEqual({
+      adapter: selection.adapter,
+      device: selection.device,
+      powerPreference: "high-performance",
+      forceFallbackAdapter: false
+    });
   });
 });

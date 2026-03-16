@@ -182,20 +182,6 @@ describe("pdfMathService", () => {
         globalThis.navigator.gpu = undefined;
       },
       reason: "gpu_unavailable"
-    },
-    {
-      name: "device memory below threshold",
-      setup() {
-        globalThis.navigator.deviceMemory = 4;
-      },
-      reason: "device_memory_too_low"
-    },
-    {
-      name: "hardware concurrency below threshold",
-      setup() {
-        globalThis.navigator.hardwareConcurrency = 4;
-      },
-      reason: "hardware_concurrency_too_low"
     }
   ])("maps $name to the frozen disabled reason", async ({ setup, reason }) => {
     setup();
@@ -213,6 +199,17 @@ describe("pdfMathService", () => {
       refCount: 0,
       progress: null
     });
+    expect(FakeWorker.instances).toHaveLength(0);
+  });
+
+  it("treats a missing WebGPU adapter as gpu_unavailable", async () => {
+    globalThis.navigator.gpu.requestAdapter = vi.fn(async () => null);
+    const service = await import("./pdfMathService");
+
+    const result = await service.prefetch();
+
+    expect(result.reason).toBe("gpu_unavailable");
+    expect(result.enabled).toBe(false);
     expect(FakeWorker.instances).toHaveLength(0);
   });
 
@@ -440,6 +437,13 @@ describe("pdfMathService", () => {
 });
 
 function installBrowserEnvironment() {
+  const requestDevice = vi.fn(async () => ({
+    label: "fake-gpu-device"
+  }));
+  const requestAdapter = vi.fn(async () => ({
+    requestDevice
+  }));
+
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
@@ -449,7 +453,9 @@ function installBrowserEnvironment() {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
-      gpu: {},
+      gpu: {
+        requestAdapter
+      },
       deviceMemory: 16,
       hardwareConcurrency: 12,
       storage: {
