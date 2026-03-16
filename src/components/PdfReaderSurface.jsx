@@ -14,6 +14,7 @@ export default function PdfReaderSurface({
   paper,
   onFirstPageRender,
   onRenderFailure,
+  onEnsureMathReady,
   onCopySuccess,
   onCopyFailure
 }) {
@@ -21,11 +22,21 @@ export default function PdfReaderSurface({
   const pagesRef = useRef(null);
   const renderSequenceRef = useRef(0);
   const firstPageNotifiedRef = useRef(false);
+  const onFirstPageRenderRef = useRef(onFirstPageRender);
+  const onRenderFailureRef = useRef(onRenderFailure);
   const [renderState, setRenderState] = useState({
     pageCount: 0,
     failed: false
   });
   const [interactionState, setInteractionState] = useState(null);
+
+  useEffect(() => {
+    onFirstPageRenderRef.current = onFirstPageRender;
+  }, [onFirstPageRender]);
+
+  useEffect(() => {
+    onRenderFailureRef.current = onRenderFailure;
+  }, [onRenderFailure]);
 
   useEffect(() => {
     firstPageNotifiedRef.current = false;
@@ -83,7 +94,7 @@ export default function PdfReaderSurface({
         pagesRef.current.replaceChildren();
       }
 
-      onRenderFailure?.(error);
+      onRenderFailureRef.current?.(error);
     };
 
     const renderDocument = async () => {
@@ -123,7 +134,7 @@ export default function PdfReaderSurface({
 
           if (pageNumber === 1 && !firstPageNotifiedRef.current) {
             firstPageNotifiedRef.current = true;
-            onFirstPageRender?.();
+            onFirstPageRenderRef.current?.();
           }
         }
       } catch (error) {
@@ -146,7 +157,7 @@ export default function PdfReaderSurface({
         // Best-effort cleanup for cancelled pdf.js documents.
       }
     };
-  }, [onFirstPageRender, onRenderFailure, pdfState.blobUrl]);
+  }, [pdfState.blobUrl]);
 
   const effectiveState = renderState.failed
     ? {
@@ -157,21 +168,43 @@ export default function PdfReaderSurface({
     : pdfState;
   const status = getPdfSurfaceStatus(effectiveState, interactionState);
   const canRecognize = canRunPdfMathCopy(pdfState);
+  const canInitializeMathCopy =
+    pdfState.loadStatus === "ready" && pdfState.mathCopyStatus === "pending";
+  const canInteract = canRecognize || canInitializeMathCopy;
 
   const handleSurfaceClick = async (event) => {
     const target =
       event.target instanceof Element ? event.target.closest("[data-pdf-page-canvas='true']") : null;
-    if (!(target instanceof HTMLCanvasElement) || !canRecognize) {
+    if (!(target instanceof HTMLCanvasElement) || !canInteract) {
       return;
     }
 
-    setInteractionState({
-      loadStatus: pdfState.loadStatus,
-      mathCopyStatus: "running",
-      mathCopyReason: ""
-    });
-
     try {
+      if (!canRecognize) {
+        setInteractionState({
+          loadStatus: pdfState.loadStatus,
+          mathCopyStatus: "pending",
+          mathCopyReason: "",
+          activating: true
+        });
+
+        const activationSnapshot = await onEnsureMathReady?.();
+        if (!activationSnapshot?.enabled || activationSnapshot?.phase !== "ready") {
+          setInteractionState({
+            loadStatus: pdfState.loadStatus,
+            mathCopyStatus: "disabled",
+            mathCopyReason: activationSnapshot?.reason || "worker_error"
+          });
+          return;
+        }
+      }
+
+      setInteractionState({
+        loadStatus: pdfState.loadStatus,
+        mathCopyStatus: "running",
+        mathCopyReason: ""
+      });
+
       const request = await createRecognitionRequest(target, event);
       const result = await pdfMathService.detectAndRecognize(request);
 
@@ -234,7 +267,7 @@ export default function PdfReaderSurface({
       {pdfState.blobUrl ? (
         <div
           ref={pagesRef}
-          className={`pdf-surface-pages${canRecognize ? " pdf-surface-pages--interactive" : ""}`}
+          className={`pdf-surface-pages${canInteract ? " pdf-surface-pages--interactive" : ""}`}
           onClick={(event) => {
             void handleSurfaceClick(event);
           }}
@@ -270,14 +303,21 @@ async function renderPdfPage(page, container) {
 
   canvas.className = "pdf-page-canvas";
   canvas.dataset.pdfPageCanvas = "true";
+  canvas.dataset.pageNumber = String(page.pageNumber);
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
+  canvas.dataset.renderedWidth = String(canvas.width);
+  canvas.dataset.renderedHeight = String(canvas.height);
   canvas.setAttribute("aria-label", `PDF page ${page.pageNumber}`);
   canvas.style.width = `${viewport.width}px`;
   canvas.style.height = `${viewport.height}px`;
 
   const pageShell = document.createElement("section");
   pageShell.className = "pdf-page";
+  pageShell.dataset.pdfPage = "true";
+  pageShell.dataset.pageNumber = String(page.pageNumber);
+  pageShell.dataset.renderedWidth = String(canvas.width);
+  pageShell.dataset.renderedHeight = String(canvas.height);
   pageShell.appendChild(canvas);
 
   await page.render({

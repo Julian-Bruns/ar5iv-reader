@@ -4,7 +4,8 @@ const LOAD_STATUS_MESSAGES = Object.freeze({
 });
 
 const MATH_STATUS_MESSAGES = Object.freeze({
-  pending: "Preparing PDF math copy…",
+  pending: "Click an equation to enable LaTeX copy.",
+  preparing: "Preparing PDF math copy…",
   ready: "Click an equation to copy LaTeX.",
   running: "Recognizing equation…"
 });
@@ -55,6 +56,13 @@ export function getPdfSurfaceStatus(pdfState, interactionState = null) {
     return {
       tone: "pending",
       text: MATH_STATUS_MESSAGES.running
+    };
+  }
+
+  if (effectiveMathStatus === "pending" && interactionState?.activating) {
+    return {
+      tone: "pending",
+      text: MATH_STATUS_MESSAGES.preparing
     };
   }
 

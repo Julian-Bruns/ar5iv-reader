@@ -1,4 +1,5 @@
 let pdfJsPromise = null;
+let pdfJsWorkerPromise = null;
 
 export async function loadPdfJs() {
   if (!pdfJsPromise) {
@@ -19,6 +20,14 @@ async function importPdfJs() {
 
   if (workerSrc && pdfjs?.GlobalWorkerOptions) {
     pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+
+    if (typeof Worker === "function") {
+      pdfJsWorkerPromise ||= createPdfJsWorker(workerSrc);
+      const workerPort = await pdfJsWorkerPromise;
+      if (workerPort) {
+        pdfjs.GlobalWorkerOptions.workerPort = workerPort;
+      }
+    }
   }
 
   if (typeof pdfjs?.getDocument !== "function") {
@@ -26,4 +35,14 @@ async function importPdfJs() {
   }
 
   return pdfjs;
+}
+
+async function createPdfJsWorker(workerSrc) {
+  try {
+    return new Worker(workerSrc, {
+      type: "module"
+    });
+  } catch {
+    return null;
+  }
 }

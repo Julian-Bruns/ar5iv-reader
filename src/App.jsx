@@ -35,8 +35,7 @@ import {
   getPdfFallbackBlobUrl,
   getPdfMathStateFromServiceSnapshot,
   getSupersededPdfBlobUrls,
-  isPdfFallbackPaper,
-  reconcilePdfMathServiceTabs
+  isPdfFallbackPaper
 } from "./lib/pdfFallbackLifecycle";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
@@ -143,6 +142,7 @@ export default function App() {
   const pdfFallbackPrimeRequestIdsRef = useRef(new Map());
   const pdfFallbackPrimeSequenceRef = useRef(0);
   const pdfMathAcquiredTabKeysRef = useRef(new Set());
+  const pdfMathAcquirePromisesRef = useRef(new Map());
   const relayClientRef = useRef(null);
   const sessionsRef = useRef(new Map());
   const deviceIdentityRef = useRef(null);
@@ -182,20 +182,19 @@ export default function App() {
   }, [pairedDevices]);
 
   useEffect(() => {
-    reconcilePdfMathServiceTabs({
-      tabs: openTabs,
-      acquiredTabKeys: pdfMathAcquiredTabKeysRef.current,
-      service: pdfMathService,
-      onStatus: (tabKey, snapshot) => {
-        patchPdfFallbackPaper(tabKey, (currentPaper) => ({
-          ...currentPaper,
-          pdfState: {
-            ...currentPaper.pdfState,
-            ...getPdfMathStateFromServiceSnapshot(snapshot)
-          }
-        }));
+    const openPdfTabKeys = new Set(
+      openTabs.filter((tab) => isPdfFallbackPaper(tab?.paper)).map((tab) => tab.key)
+    );
+
+    for (const tabKey of [...pdfMathAcquiredTabKeysRef.current]) {
+      if (openPdfTabKeys.has(tabKey)) {
+        continue;
       }
-    });
+
+      pdfMathAcquirePromisesRef.current.delete(tabKey);
+      pdfMathAcquiredTabKeysRef.current.delete(tabKey);
+      pdfMathService.release();
+    }
   }, [openTabs]);
 
   useEffect(() => {
@@ -231,6 +230,7 @@ export default function App() {
         revokeObjectUrl(getPdfFallbackBlobUrl(tab));
       }
       pdfFallbackPrimeRequestIdsRef.current.clear();
+      pdfMathAcquirePromisesRef.current.clear();
       const acquiredPdfTabCount = pdfMathAcquiredTabKeysRef.current.size;
       pdfMathAcquiredTabKeysRef.current.clear();
       for (let index = 0; index < acquiredPdfTabCount; index += 1) {
@@ -994,48 +994,84 @@ export default function App() {
         );
       });
 
-    void pdfMathService.prefetch()
+  }
+
+  async function ensurePdfMathReady(tabKey) {
+    if (!tabKey) {
+      return pdfMathService.status();
+    }
+
+    const currentTab = openTabsRef.current.find((tab) => tab.key === tabKey);
+    if (!isPdfFallbackPaper(currentTab?.paper)) {
+      return pdfMathService.status();
+    }
+
+    const existingAcquire = pdfMathAcquirePromisesRef.current.get(tabKey);
+    if (existingAcquire) {
+      return existingAcquire;
+    }
+
+    if (pdfMathAcquiredTabKeysRef.current.has(tabKey)) {
+      return pdfMathService.status();
+    }
+
+    pdfMathAcquiredTabKeysRef.current.add(tabKey);
+
+    const acquirePromise = Promise.resolve(pdfMathService.acquire())
       .then((snapshot) => {
-        if (pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId) {
-          return;
+        if (!pdfMathAcquiredTabKeysRef.current.has(tabKey)) {
+          return snapshot;
         }
 
-        patchPdfFallbackPaper(
-          tabKey,
-          (currentPaper) => ({
-            ...currentPaper,
-            pdfState: {
-              ...currentPaper.pdfState,
-              ...getPdfMathStateFromServiceSnapshot(snapshot)
-            }
-          }),
-          { requestId }
-        );
+        patchPdfFallbackPaper(tabKey, (currentPaper) => ({
+          ...currentPaper,
+          pdfState: {
+            ...currentPaper.pdfState,
+            ...getPdfMathStateFromServiceSnapshot(snapshot)
+          }
+        }));
+
+        return snapshot;
       })
       .catch(() => {
-        if (pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId) {
-          return;
-        }
+        const fallbackSnapshot = {
+          phase: "error",
+          enabled: false,
+          reason: "worker_error",
+          benchmarkMs: null,
+          modelRevision: "breezedeus-pix2text-v1",
+          refCount: pdfMathService.status().refCount
+        };
 
-        patchPdfFallbackPaper(
-          tabKey,
-          (currentPaper) => ({
+        if (pdfMathAcquiredTabKeysRef.current.has(tabKey)) {
+          patchPdfFallbackPaper(tabKey, (currentPaper) => ({
             ...currentPaper,
             pdfState: {
               ...currentPaper.pdfState,
-              ...getPdfMathStateFromServiceSnapshot({
-                phase: "error",
-                enabled: false,
-                reason: "worker_error",
-                benchmarkMs: null,
-                modelRevision: "breezedeus-pix2text-v1",
-                refCount: pdfMathService.status().refCount
-              })
+              ...getPdfMathStateFromServiceSnapshot(fallbackSnapshot)
             }
-          }),
-          { requestId }
-        );
+          }));
+        }
+
+        return fallbackSnapshot;
+      })
+      .finally(() => {
+        if (pdfMathAcquirePromisesRef.current.get(tabKey) === acquirePromise) {
+          pdfMathAcquirePromisesRef.current.delete(tabKey);
+        }
       });
+
+    pdfMathAcquirePromisesRef.current.set(tabKey, acquirePromise);
+
+    patchPdfFallbackPaper(tabKey, (currentPaper) => ({
+      ...currentPaper,
+      pdfState: {
+        ...currentPaper.pdfState,
+        ...getPdfMathStateFromServiceSnapshot(pdfMathService.status())
+      }
+    }));
+
+    return acquirePromise;
   }
 
   function handlePdfFirstPageRender(tabKey, blobUrl) {
@@ -2015,6 +2051,7 @@ export default function App() {
           onPdfRenderFailure={() =>
             handlePdfRenderFailure(activeTabKey, reader.paper?.pdfState?.blobUrl || "")
           }
+          onPdfMathActivationRequest={() => ensurePdfMathReady(activeTabKey)}
         />
       ) : (
         <LibraryView

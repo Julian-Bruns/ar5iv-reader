@@ -18,7 +18,8 @@ export default function ReaderView({
   onDelete,
   showToast,
   onPdfFirstPageRender,
-  onPdfRenderFailure
+  onPdfRenderFailure,
+  onPdfMathActivationRequest
 }) {
   const articleRef = useRef(null);
   const showToastRef = useRef(showToast);
@@ -360,6 +361,7 @@ export default function ReaderView({
               paper={paper}
               onFirstPageRender={onPdfFirstPageRender}
               onRenderFailure={onPdfRenderFailure}
+              onEnsureMathReady={onPdfMathActivationRequest}
               onCopySuccess={showToast}
               onCopyFailure={showToast}
             />
