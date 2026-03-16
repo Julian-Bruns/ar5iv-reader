@@ -246,4 +246,11 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/pageShell\.dataset\.pageNumber = String\(pageNumber\);/);
     expect(source).toMatch(/cropRect: \{[\s\S]*width: canvas\.width,[\s\S]*height: canvas\.height[\s\S]*\}/);
   });
+
+  it("reruns formula detection through the defined helper after page render", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/void maybeDetectFormulasForCanvas\(nextPageNumber, renderJob\.canvas, \{/);
+    expect(source).not.toMatch(/void maybeDetectFormulas\(nextPageNumber, renderJob\.canvas, \{/);
+  });
 });

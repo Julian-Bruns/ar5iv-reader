@@ -383,7 +383,7 @@ export default function PdfReaderSurface({
         } else {
           void persistLowQualityCanvas(paper, nextPageNumber, renderJob.canvas);
         }
-        void maybeDetectFormulas(nextPageNumber, renderJob.canvas, {
+        void maybeDetectFormulasForCanvas(nextPageNumber, renderJob.canvas, {
           force: nextQuality === "high"
         });
 
