@@ -195,6 +195,11 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/onFirstPageRenderRef\.current\?\.\(\);/);
     expect(source).toMatch(/onRenderFailureRef\.current\?\.\(error\);/);
     expect(source).toMatch(/const activationSnapshot = await onEnsureMathReady\?\.\(\);/);
+    expect(source).toMatch(/handleSurfaceClickRef\.current = handleSurfaceClick;/);
+    expect(source).toMatch(/bindCanvasClick\(restoredCanvas, handleSurfaceClickRef\);/);
+    expect(source).toMatch(/bindCanvasClick\(renderJob\.canvas, handleSurfaceClickRef\);/);
+    expect(source).toMatch(/canvas\.addEventListener\("click", handleClick\);/);
+    expect(source).not.toMatch(/className=\{`pdf-surface-pages\$\{canInteract \? " pdf-surface-pages--interactive" : ""\}`\}[\s\S]*onClick=/);
   });
 
   it("limits toast traffic to interaction results", () => {
@@ -252,5 +257,12 @@ describe("PdfReaderSurface callback and toast contract", () => {
 
     expect(source).toMatch(/void maybeDetectFormulasForCanvas\(nextPageNumber, renderJob\.canvas, \{/);
     expect(source).not.toMatch(/void maybeDetectFormulas\(nextPageNumber, renderJob\.canvas, \{/);
+  });
+
+  it("does not restart pdf.js rendering for unrelated paper object updates", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/\}, \[paper\?\.id, pdfState\.blobUrl\]\);/);
+    expect(source).not.toMatch(/\}, \[paper, pdfState\.blobUrl\]\);/);
   });
 });

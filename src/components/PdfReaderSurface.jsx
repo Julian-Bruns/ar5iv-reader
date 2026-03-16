@@ -51,6 +51,7 @@ export default function PdfReaderSurface({
   const highQualityCacheRef = useRef(new Map());
   const visiblePagesRef = useRef(new Set());
   const ensurePageQualityRef = useRef(null);
+  const handleSurfaceClickRef = useRef(null);
   const [renderState, setRenderState] = useState({
     totalPages: 0,
     failed: false
@@ -101,17 +102,13 @@ export default function PdfReaderSurface({
     }
 
     if (
-      interactionState.mathCopyStatus !== "running" &&
-      interactionState.mathCopyStatus !== pdfState.mathCopyStatus
+      interactionState.loadStatus === pdfState.loadStatus &&
+      interactionState.mathCopyStatus === pdfState.mathCopyStatus &&
+      interactionState.mathCopyReason === pdfState.mathCopyReason
     ) {
       setInteractionState(null);
-      return;
     }
-
-    if (interactionState.mathCopyReason !== pdfState.mathCopyReason) {
-      setInteractionState(null);
-    }
-  }, [interactionState, pdfState.mathCopyReason, pdfState.mathCopyStatus]);
+  }, [interactionState, pdfState.loadStatus, pdfState.mathCopyReason, pdfState.mathCopyStatus]);
 
   useEffect(() => {
     if (!pagesRef.current || !pdfState.blobUrl) {
@@ -348,6 +345,7 @@ export default function PdfReaderSurface({
               renderedCanvasesRef
             }
           );
+          bindCanvasClick(restoredCanvas, handleSurfaceClickRef);
           activeRenderJob = null;
           await nextAnimationFrame();
           void processNextRender();
@@ -378,6 +376,7 @@ export default function PdfReaderSurface({
             renderedCanvasesRef
           }
         );
+        bindCanvasClick(renderJob.canvas, handleSurfaceClickRef);
         if (nextQuality === "high") {
           void rememberHighQualityCanvas(highQualityCacheRef.current, nextPageNumber, renderJob.canvas);
         } else {
@@ -554,7 +553,7 @@ export default function PdfReaderSurface({
       }
       pdfDocumentRef.current = null;
     };
-  }, [paper, pdfState.blobUrl]);
+  }, [paper?.id, pdfState.blobUrl]);
 
   useEffect(() => {
     if (serviceSnapshot.phase !== "ready" || !pagesRef.current) {
@@ -754,6 +753,8 @@ export default function PdfReaderSurface({
     }
   };
 
+  handleSurfaceClickRef.current = handleSurfaceClick;
+
   return (
     <div className="pdf-surface-shell">
       <div className="pdf-surface-toolbar">
@@ -770,9 +771,6 @@ export default function PdfReaderSurface({
         <div
           ref={pagesRef}
           className={`pdf-surface-pages${canInteract ? " pdf-surface-pages--interactive" : ""}`}
-          onClick={(event) => {
-            void handleSurfaceClick(event);
-          }}
           aria-label={paper?.title || paper?.id || "PDF fallback"}
           role="group"
         />
@@ -1176,6 +1174,18 @@ function cloneCanvasFromBitmap(bitmap, pageShell, pageNumber, quality) {
   pageShell.dataset.renderedHeight = String(canvas.height);
   pageShell.dataset.renderQuality = quality;
   return canvas;
+}
+
+function bindCanvasClick(canvas, handleSurfaceClickRef) {
+  if (!(canvas instanceof HTMLCanvasElement) || canvas.__pdfClickHandlerBound) {
+    return;
+  }
+
+  const handleClick = (event) => {
+    void handleSurfaceClickRef.current?.(event);
+  };
+  canvas.addEventListener("click", handleClick);
+  canvas.__pdfClickHandlerBound = handleClick;
 }
 
 function touchHighQualityEntry(cache, pageNumber) {
