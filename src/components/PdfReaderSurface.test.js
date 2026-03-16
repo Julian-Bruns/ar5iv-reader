@@ -250,7 +250,7 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/canvas\.dataset\.renderedWidth = String\(canvas\.width\);/);
     expect(source).toMatch(/canvas\.dataset\.renderedHeight = String\(canvas\.height\);/);
     expect(source).toMatch(/pageShell\.dataset\.pdfPage = "true";/);
-    expect(source).toMatch(/pageShell\.dataset\.pageNumber = String\(page\.pageNumber\);/);
+    expect(source).toMatch(/pageShell\.dataset\.pageNumber = String\(pageNumber\);/);
     expect(source).toMatch(/cropRect: \{[\s\S]*width: canvas\.width,[\s\S]*height: canvas\.height[\s\S]*\}/);
   });
 });
