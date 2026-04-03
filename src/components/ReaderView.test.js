@@ -24,6 +24,13 @@ describe("ReaderView Plan 4 integration", () => {
     expect(source).toMatch(/installMathCopy\(articleRef\.current, \(message\) =>/);
   });
 
+  it("installs theorem copy support only for HTML papers", () => {
+    const source = fs.readFileSync(readerViewPath, "utf8");
+
+    expect(source).toMatch(/import \{ installTheoremCopy \} from "\.\.\/lib\/theoremCopy";/);
+    expect(source).toMatch(/installTheoremCopy\(articleRef\.current, paper, \(message\) =>/);
+  });
+
   it("forwards PDF math activation requests to the surface", () => {
     const source = fs.readFileSync(readerViewPath, "utf8");
 

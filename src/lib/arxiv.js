@@ -51,6 +51,14 @@ export function buildArxivAbsUrl(id) {
   return `https://arxiv.org/abs/${id}`;
 }
 
+export function buildArxivSourceUrl(id) {
+  return `https://export.arxiv.org/e-print/${id}`;
+}
+
+export function buildArxivBibtexUrl(id) {
+  return `https://arxiv.org/bibtex/${id}`;
+}
+
 function matchArxivId(value) {
   const modern = value.match(MODERN_ID)?.[0];
   if (modern) {

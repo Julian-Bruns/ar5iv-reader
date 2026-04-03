@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { installMathCopy } from "../lib/mathCopy";
+import { installTheoremCopy } from "../lib/theoremCopy";
 import PdfReaderSurface from "./PdfReaderSurface";
 
 export default function ReaderView({
@@ -53,6 +54,16 @@ export default function ReaderView({
       showToastRef.current(message)
     );
   }, [paper?.id, paper?.sanitizedHtml]);
+
+  useEffect(() => {
+    if (!articleRef.current || !paper?.sanitizedHtml || paper?.view !== "html") {
+      return undefined;
+    }
+
+    return installTheoremCopy(articleRef.current, paper, (message) =>
+      showToastRef.current(message)
+    );
+  }, [paper]);
 
   useEffect(() => {
     setDismissedNotice(false);

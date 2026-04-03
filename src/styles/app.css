@@ -1336,6 +1336,23 @@ input {
   margin: 0 0 0.4rem;
 }
 
+.paper-body [data-copy-theorem-root="true"] {
+  position: relative;
+  border-radius: 0.85rem;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.paper-body [data-copy-theorem-root="true"]:hover {
+  background: rgba(212, 109, 74, 0.04);
+}
+
+.paper-body .paper-theorem-copy-target--active {
+  background: rgba(212, 109, 74, 0.08);
+  box-shadow: 0 0 0 1px rgba(212, 109, 74, 0.22);
+}
+
 .paper-body a {
   color: #9e2f1f;
 }
@@ -1502,6 +1519,41 @@ input {
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
+}
+
+.theorem-copy-menu {
+  position: fixed;
+  z-index: 12;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 13rem;
+  padding: 0.35rem;
+  background: rgba(255, 251, 245, 0.98);
+  border: 1px solid rgba(111, 52, 39, 0.12);
+  border-radius: 0.95rem;
+  box-shadow: 0 18px 34px rgba(44, 33, 29, 0.2);
+  backdrop-filter: blur(16px);
+}
+
+.theorem-copy-menu button {
+  border: 0;
+  border-radius: 0.7rem;
+  padding: 0.72rem 0.8rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.95rem;
+  text-align: left;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.theorem-copy-menu button:hover,
+.theorem-copy-menu button:focus-visible {
+  background: rgba(212, 109, 74, 0.1);
+  color: var(--accent-dark);
+  outline: none;
 }
 
 .toast {
