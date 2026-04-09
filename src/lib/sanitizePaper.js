@@ -363,6 +363,16 @@ function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
   return sanitizedRoot.outerHTML;
 }
 
+function getPurifier() {
+  if (!purifier) {
+    if (!globalThis.window) {
+      throw new Error("DOMPurify requires a browser window.");
+    }
+    purifier = DOMPurify(globalThis.window);
+  }
+  return purifier;
+}
+
 function cleanPaperTitle(value) {
   let title = String(value || "").trim();
   if (!title) {

@@ -141,6 +141,10 @@ function normalizeManifestPapers(papers) {
   const papersById = new Map();
 
   for (const paper of Array.isArray(papers) ? papers : []) {
+    if (paper?.contentType === "pdf") {
+      continue;
+    }
+
     const normalized = normalizeManifestPaper(paper);
     if (!normalized) {
       continue;

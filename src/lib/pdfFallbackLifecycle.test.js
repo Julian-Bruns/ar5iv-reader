@@ -16,6 +16,8 @@ describe("createPrimedPdfFallbackPaper", () => {
       view: "pdf",
       notice: "Showing the PDF because this paper does not currently have a usable HTML view.",
       pdfState: {
+        documentUrl: "",
+        sourceMode: "",
         blobUrl: "",
         relay: "",
         loadStatus: "idle",
@@ -34,8 +36,47 @@ describe("createPrimedPdfFallbackPaper", () => {
     });
 
     expect(primed.pdfState).toEqual({
+      documentUrl: "https://arxiv.org/pdf/2401.01234.pdf",
+      sourceMode: "remote-direct",
       blobUrl: "",
       relay: "",
+      loadStatus: "loading",
+      mathCopyStatus: "pending",
+      mathCopyReason: ""
+    });
+  });
+
+  it("preserves explicit blob-backed document settings", () => {
+    const primed = createPrimedPdfFallbackPaper(
+      {
+        id: "saved:2401.01234",
+        pdfUrl: "https://arxiv.org/pdf/2401.01234.pdf",
+        view: "pdf",
+        pdfState: {
+          documentUrl: "blob:saved",
+          sourceMode: "saved-blob",
+          blobUrl: "blob:saved",
+          relay: "saved",
+          loadStatus: "idle",
+          mathCopyStatus: "pending",
+          mathCopyReason: ""
+        }
+      },
+      {
+        phase: "idle",
+        enabled: false,
+        reason: "",
+        benchmarkMs: null,
+        modelRevision: "breezedeus-pix2text-v1",
+        refCount: 0
+      }
+    );
+
+    expect(primed.pdfState).toEqual({
+      documentUrl: "blob:saved",
+      sourceMode: "saved-blob",
+      blobUrl: "blob:saved",
+      relay: "saved",
       loadStatus: "loading",
       mathCopyStatus: "pending",
       mathCopyReason: ""

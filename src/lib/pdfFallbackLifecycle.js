@@ -38,6 +38,8 @@ export function createPrimedPdfFallbackPaper(paper, snapshot) {
     ...paper,
     pdfState: {
       ...paper.pdfState,
+      documentUrl: String(paper?.pdfState?.documentUrl || paper?.pdfUrl || "").trim(),
+      sourceMode: String(paper?.pdfState?.sourceMode || "remote-direct").trim(),
       loadStatus: "loading",
       ...getPdfMathStateFromServiceSnapshot(snapshot)
     }

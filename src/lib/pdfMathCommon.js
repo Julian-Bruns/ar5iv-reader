@@ -15,18 +15,22 @@ export const PDF_MATH_MODELS = Object.freeze([
 
 export function createPdfMathStatusSnapshot({
   phase = "idle",
+  installed = false,
   enabled = false,
   reason = "",
   benchmarkMs = null,
-  refCount = 0
+  refCount = 0,
+  progress = null
 } = {}) {
   return {
     phase,
+    installed,
     enabled,
     reason,
     benchmarkMs,
     modelRevision: PDF_MATH_MODEL_REVISION,
-    refCount
+    refCount,
+    progress: normalizeProgress(progress)
   };
 }
 
@@ -37,6 +41,14 @@ export function createPdfMathResult(result = {}) {
     confidence: Number.isFinite(result.confidence) ? result.confidence : null,
     bounds: normalizeBounds(result.bounds),
     reason: normalizeResultReason(result.reason)
+  };
+}
+
+export function createPdfMathLayoutResult(result = {}) {
+  return {
+    bounds: Array.isArray(result.bounds)
+      ? result.bounds.map((bounds) => normalizeBounds(bounds)).filter(Boolean)
+      : []
   };
 }
 
@@ -77,4 +89,24 @@ function normalizeBounds(bounds) {
 
 function normalizeResultReason(reason) {
   return reason === "no_formula_detected" || reason === "ocr_empty" ? reason : "";
+}
+
+function normalizeProgress(progress) {
+  if (!progress || typeof progress !== "object") {
+    return null;
+  }
+
+  return {
+    loadedBytes: Number(progress.loadedBytes || 0),
+    totalBytes:
+      progress.totalBytes == null || Number.isNaN(Number(progress.totalBytes))
+        ? null
+        : Number(progress.totalBytes),
+    etaMs:
+      progress.etaMs == null || Number.isNaN(Number(progress.etaMs))
+        ? null
+        : Number(progress.etaMs),
+    stage: String(progress.stage || "").trim(),
+    oneTime: Boolean(progress.oneTime)
+  };
 }

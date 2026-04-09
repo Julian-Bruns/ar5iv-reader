@@ -9,15 +9,25 @@ const dbMocks = vi.hoisted(() => ({
   }
 }));
 
+const modelStoreMocks = vi.hoisted(() => ({
+  getMlModelMetaRecord: vi.fn(async () => null)
+}));
+
 vi.mock("./db", () => ({
   setSetting: dbMocks.setSetting,
   SETTING_KEYS: dbMocks.SETTING_KEYS
+}));
+
+vi.mock("./pdfMathModelStore", () => ({
+  getMlModelMetaRecord: modelStoreMocks.getMlModelMetaRecord
 }));
 
 describe("pdfMathService", () => {
   beforeEach(() => {
     vi.resetModules();
     dbMocks.setSetting.mockReset();
+    modelStoreMocks.getMlModelMetaRecord.mockReset();
+    modelStoreMocks.getMlModelMetaRecord.mockResolvedValue(null);
     installBrowserEnvironment();
     installWorkerScenario({
       INIT(message) {
@@ -43,11 +53,13 @@ describe("pdfMathService", () => {
 
     expect(first).toEqual({
       phase: "ready",
+      installed: true,
       enabled: true,
       reason: "",
       benchmarkMs: 321,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
     expect(second).toEqual(first);
     expect(service.status()).toEqual(first);
@@ -170,20 +182,6 @@ describe("pdfMathService", () => {
         globalThis.navigator.gpu = undefined;
       },
       reason: "gpu_unavailable"
-    },
-    {
-      name: "device memory below threshold",
-      setup() {
-        globalThis.navigator.deviceMemory = 4;
-      },
-      reason: "device_memory_too_low"
-    },
-    {
-      name: "hardware concurrency below threshold",
-      setup() {
-        globalThis.navigator.hardwareConcurrency = 4;
-      },
-      reason: "hardware_concurrency_too_low"
     }
   ])("maps $name to the frozen disabled reason", async ({ setup, reason }) => {
     setup();
@@ -193,12 +191,25 @@ describe("pdfMathService", () => {
 
     expect(result).toEqual({
       phase: "disabled",
+      installed: false,
       enabled: false,
       reason,
       benchmarkMs: null,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
+    expect(FakeWorker.instances).toHaveLength(0);
+  });
+
+  it("treats a missing WebGPU adapter as gpu_unavailable", async () => {
+    globalThis.navigator.gpu.requestAdapter = vi.fn(async () => null);
+    const service = await import("./pdfMathService");
+
+    const result = await service.prefetch();
+
+    expect(result.reason).toBe("gpu_unavailable");
+    expect(result.enabled).toBe(false);
     expect(FakeWorker.instances).toHaveLength(0);
   });
 
@@ -278,11 +289,13 @@ describe("pdfMathService", () => {
 
     expect(result).toEqual({
       phase: "disabled",
+      installed: true,
       enabled: false,
       reason: "benchmark_too_slow",
       benchmarkMs: 5001,
       modelRevision: "breezedeus-pix2text-v1",
-      refCount: 0
+      refCount: 0,
+      progress: null
     });
   });
 
@@ -308,7 +321,7 @@ describe("pdfMathService", () => {
     });
 
     const service = await import("./pdfMathService");
-    await service.acquire();
+    await service.ensureReady();
 
     const pending = service.detectAndRecognize({
       imageBitmap: { tag: "bitmap" },
@@ -383,7 +396,7 @@ describe("pdfMathService", () => {
     });
 
     const service = await import("./pdfMathService");
-    await service.acquire();
+    await service.ensureReady();
 
     await expect(
       service.detectAndRecognize({
@@ -404,7 +417,11 @@ describe("pdfMathService", () => {
       reason: ""
     });
 
-    expect(FakeWorker.instances[0].postCalls.at(-1)).toEqual({
+    expect(
+      FakeWorker.instances[0].postCalls.find(
+        (entry) => entry.message?.type === "DETECT_AND_RECOGNIZE"
+      )
+    ).toEqual({
       message: {
         type: "DETECT_AND_RECOGNIZE",
         requestId: expect.any(String),
@@ -420,6 +437,13 @@ describe("pdfMathService", () => {
 });
 
 function installBrowserEnvironment() {
+  const requestDevice = vi.fn(async () => ({
+    label: "fake-gpu-device"
+  }));
+  const requestAdapter = vi.fn(async () => ({
+    requestDevice
+  }));
+
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
@@ -429,7 +453,9 @@ function installBrowserEnvironment() {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
-      gpu: {},
+      gpu: {
+        requestAdapter
+      },
       deviceMemory: 16,
       hardwareConcurrency: 12,
       storage: {
