@@ -5,6 +5,10 @@ import {
   buildArxivPdfUrl
 } from "./arxiv";
 import { AR5IV_HEDGE_DELAY_MS, AR5IV_PROBE_TIMEOUT_MS } from "./fetchPolicy";
+import {
+  createInitialPdfFallbackState,
+  PDF_FALLBACK_NOTICE
+} from "./pdfFallbackState";
 import { extractPaperMetadata, normalizePaperTitle } from "./sanitizePaper";
 
 export const RELAYS = [
@@ -91,13 +95,16 @@ export function buildPdfFallbackPaper(
   id,
   { sourceUrl = "", titleHint = "", reason = "" } = {}
 ) {
+  void reason;
+
   return {
     id,
     sourceUrl: sourceUrl || buildArxivAbsUrl(id),
     pdfUrl: buildArxivPdfUrl(id),
     titleHint,
     view: "pdf",
-    notice: buildPdfFallbackNotice(reason)
+    notice: PDF_FALLBACK_NOTICE,
+    pdfState: createInitialPdfFallbackState()
   };
 }
 
@@ -239,10 +246,6 @@ function assertLooksLikePaperHtml(rawHtml, targetUrl) {
 
   const pageTitle = documentNode.title?.trim() || targetUrl;
   throw new Error(`Fetched HTML did not contain a rendered paper article (${pageTitle}).`);
-}
-
-function buildPdfFallbackNotice(reason) {
-  return "Showing the PDF because this paper does not currently have a usable HTML view. Math copy is disabled in PDF fallback.";
 }
 
 export async function fetchBlobWithFallback(targetUrl) {
