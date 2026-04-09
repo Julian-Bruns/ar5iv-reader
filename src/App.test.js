@@ -61,6 +61,16 @@ describe("App PDF fallback integration", () => {
     expect(source).toMatch(/sourceMode: "saved-blob",/);
   });
 
+  it("persists theorem notes and wires them into reader and library views", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/const \[theoremNotes, setTheoremNotes\] = useState\(\[\]\);/);
+    expect(source).toMatch(/getSetting\(SETTING_KEYS\.theoremNotes\)/);
+    expect(source).toMatch(/setSetting\(SETTING_KEYS\.theoremNotes, nextNotes\)/);
+    expect(source).toMatch(/onCreateTheoremNote=\{handleCreateTheoremNote\}/);
+    expect(source).toMatch(/theoremNotes=\{theoremNotes\}/);
+  });
+
   it("revokes superseded and closed PDF blob URLs through the App-owned lifecycle", () => {
     const source = fs.readFileSync(appPath, "utf8");
 

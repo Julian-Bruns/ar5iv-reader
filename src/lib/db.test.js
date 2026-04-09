@@ -76,6 +76,17 @@ describe("db v6 upgrade", () => {
             key: "pdfFallbackNoticeEnabled",
             value: true,
             updatedAt: "2026-03-14T10:00:00.000Z"
+          },
+          {
+            key: "theoremNotes",
+            value: [
+              {
+                id: "note-1",
+                theoremText: "Theorem 1",
+                noteText: "Important"
+              }
+            ],
+            updatedAt: "2026-03-14T10:05:00.000Z"
           }
         ],
         indexes: {}
@@ -164,6 +175,16 @@ describe("db v6 upgrade", () => {
         expect.objectContaining({
           key: "pdfFallbackNoticeEnabled",
           value: true
+        }),
+        expect.objectContaining({
+          key: "theoremNotes",
+          value: [
+            expect.objectContaining({
+              id: "note-1",
+              theoremText: "Theorem 1",
+              noteText: "Important"
+            })
+          ]
         })
       ]
     });

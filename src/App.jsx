@@ -52,6 +52,10 @@ import {
   normalizePaperTitle,
   sanitizePaperHtml
 } from "./lib/sanitizePaper";
+import {
+  createTheoremNoteRecord,
+  normalizeTheoremNotes
+} from "./lib/theoremNotes";
 import { getOrCreateDeviceIdentity, updateDeviceIdentityLabel } from "./lib/nearby/deviceIdentity";
 import { extractInviteId } from "./lib/nearby/inviteCode";
 import { formatPairSyncStatus } from "./lib/nearby/merge";
@@ -133,6 +137,7 @@ export default function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [installMeta, setInstallMeta] = useState(null);
   const [recoveryState, setRecoveryState] = useState(createDefaultRecoveryState());
+  const [theoremNotes, setTheoremNotes] = useState([]);
   const [transitionState, setTransitionState] = useState(createDefaultTransitionState());
   const [nearbyState, setNearbyState] = useState({
     relayStatus: NEARBY_SIGNAL_URL ? "idle" : "unavailable",
@@ -927,6 +932,7 @@ export default function App() {
       const [
         helpDismissedSetting,
         fallbackSetting,
+        theoremNotesSetting,
         nextIdentity,
         storedBackupState,
         storedBackupFileHandle,
@@ -937,6 +943,7 @@ export default function App() {
       ] = await Promise.all([
         getSetting(SETTING_KEYS.openFromArxivHelpDismissed),
         getSetting(SETTING_KEYS.pdfFallbackNoticeEnabled),
+        getSetting(SETTING_KEYS.theoremNotes),
         getOrCreateDeviceIdentity(),
         getSetting(SETTING_KEYS.backupState),
         getSetting(SETTING_KEYS.backupFileHandle),
@@ -949,6 +956,7 @@ export default function App() {
       const locallyDismissed = readOpenFromArxivHelpDismissedFlag();
       setOpenFromArxivHelpDismissed(locallyDismissed || helpDismissedSetting?.value === true);
       setFallbackNoticeEnabled(fallbackSetting?.value !== false);
+      setTheoremNotes(normalizeTheoremNotes(theoremNotesSetting?.value));
       setDeviceIdentity(nextIdentity);
       backupFileHandleRef.current = storedBackupFileHandle?.value || storedRecoveryFileHandle?.value || null;
       const nextBackupState = normalizeBackupState(
@@ -1602,6 +1610,7 @@ export default function App() {
         concurrency: 2
       });
       await refreshLibrary();
+      await refreshTheoremNotes();
       setRouteVersion((value) => value + 1);
       void triggerNearbySync("import", {
         force: true
@@ -1673,6 +1682,38 @@ export default function App() {
 
       console.error("Failed to choose backup file", error);
       showToast(stringifyError(error));
+    }
+  }
+
+  async function refreshTheoremNotes() {
+    try {
+      const storedNotes = await getSetting(SETTING_KEYS.theoremNotes);
+      setTheoremNotes(normalizeTheoremNotes(storedNotes?.value));
+    } catch (error) {
+      console.error("Failed to load theorem notes", error);
+    }
+  }
+
+  async function handleCreateTheoremNote(payload, noteText) {
+    const noteRecord = createTheoremNoteRecord(payload, noteText);
+    if (!noteRecord) {
+      return false;
+    }
+
+    let nextNotes = [];
+    setTheoremNotes((current) => {
+      nextNotes = normalizeTheoremNotes([noteRecord, ...current]);
+      return nextNotes;
+    });
+
+    try {
+      await setSetting(SETTING_KEYS.theoremNotes, nextNotes);
+      return true;
+    } catch (error) {
+      console.error("Failed to persist theorem note", error);
+      await refreshTheoremNotes();
+      showToast("Note save failed.");
+      return false;
     }
   }
 
@@ -2278,6 +2319,7 @@ export default function App() {
           onExport={() => handleExportPaper(reader.paper.id)}
           onDelete={() => handleDeletePaper(reader.paper.id)}
           showToast={showToast}
+          onCreateTheoremNote={handleCreateTheoremNote}
           onPdfFirstPageRender={(documentUrl) =>
             handlePdfFirstPageRender(
               activeTabKey,
@@ -2295,6 +2337,7 @@ export default function App() {
       ) : (
         <LibraryView
           papers={library.papers}
+          theoremNotes={theoremNotes}
           loading={library.loading}
           backupImporting={backupImporting}
           receiveMessage={receiveMessage}
@@ -2316,6 +2359,7 @@ export default function App() {
           onClearInput={() => setLibraryInput("")}
           onSubmitUrl={openReceiveInput}
           onOpenPaper={(paperId) => navigate(`/?paper=${encodeURIComponent(paperId)}`)}
+          onOpenNotePaper={openReceiveInput}
           onExportPaper={handleExportPaper}
           onDeletePaper={handleDeletePaper}
           onDownloadBackup={handleExportLibrary}

@@ -40,4 +40,17 @@ describe("ReaderView Plan 4 integration", () => {
     expect(source).toMatch(/showToastRef\.current\("Copied BibTeX\."\);/);
     expect(source).toMatch(/Copy BibTeX/);
   });
+
+  it("adds theorem context actions for copy variants and note creation", () => {
+    const source = fs.readFileSync(readerViewPath, "utf8");
+
+    expect(source).toMatch(/buildTheoremCopyText/);
+    expect(source).toMatch(/buildTheoremPayload/);
+    expect(source).toMatch(/findTheoremFromTarget/);
+    expect(source).toMatch(/handleContextMenu/);
+    expect(source).toMatch(/Copy with proof/);
+    expect(source).toMatch(/Copy without proof/);
+    expect(source).toMatch(/Create note/);
+    expect(source).toMatch(/onCreateTheoremNote/);
+  });
 });

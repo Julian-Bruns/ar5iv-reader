@@ -9,7 +9,7 @@ const ML_MODEL_STORE = "mlModels";
 const ML_MODEL_META_STORE = "mlModelMeta";
 const PDF_RENDER_CACHE_STORE = "pdfRenderCache";
 const SNAPSHOT_SCHEMA_VERSION = 3;
-const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled"]);
+const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled", "theoremNotes"]);
 
 export const SETTING_KEYS = Object.freeze({
   openFromArxivHelpDismissed: "openFromArxivHelpDismissed",
@@ -17,6 +17,7 @@ export const SETTING_KEYS = Object.freeze({
   nearbySyncState: "nearbySyncState",
   pairedDevices: "pairedDevices",
   pdfFallbackNoticeEnabled: "pdfFallbackNoticeEnabled",
+  theoremNotes: "theoremNotes",
   pdfMathCopyDisableNoticeShown: "pdfMathCopyDisableNoticeShown",
   pdfMathCopyCapability: "pdfMathCopyCapability",
   pdfMathCopyBenchmark: "pdfMathCopyBenchmark",

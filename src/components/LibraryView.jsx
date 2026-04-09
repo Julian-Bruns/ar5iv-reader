@@ -4,6 +4,7 @@ import SyncPanel from "./SyncPanel";
 
 export default function LibraryView({
   papers,
+  theoremNotes,
   loading,
   backupImporting,
   receiveMessage,
@@ -25,6 +26,7 @@ export default function LibraryView({
   onClearInput,
   onSubmitUrl,
   onOpenPaper,
+  onOpenNotePaper,
   onExportPaper,
   onDeletePaper,
   onDownloadBackup,
@@ -33,6 +35,7 @@ export default function LibraryView({
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
   const [libraryQuery, setLibraryQuery] = useState("");
+  const [noteQuery, setNoteQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sortDirection, setSortDirection] = useState("desc");
   const [openPaperMenuId, setOpenPaperMenuId] = useState("");
@@ -74,6 +77,22 @@ export default function LibraryView({
         return haystack.includes(normalizedQuery);
       })
     : sortedPapers;
+  const normalizedNoteQuery = noteQuery.trim().toLowerCase();
+  const filteredNotes = normalizedNoteQuery
+    ? theoremNotes.filter((note) => {
+        const haystack = [
+          note.paperTitle,
+          note.paperId,
+          note.theoremTitle,
+          note.theoremText,
+          note.noteText,
+          note.referenceLabel
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(normalizedNoteQuery);
+      })
+    : theoremNotes;
 
   const sortButtonLabel = sortDirection === "desc" ? "Sort by newest first" : "Sort by oldest first";
 
@@ -241,6 +260,73 @@ export default function LibraryView({
                     ) : null}
                   </div>
                 </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="card notes-card">
+          <div className="library-heading">
+            <div className="section-heading section-heading--compact">
+              <h2>Notes</h2>
+              <p>Your saved theorem notes live here.</p>
+            </div>
+            <p className="notes-count">{theoremNotes.length} saved</p>
+          </div>
+
+          <div className="library-toolbar">
+            <div className="input-shell">
+              <input
+                className="url-input"
+                type="search"
+                placeholder="Search notes"
+                value={noteQuery}
+                onInput={(event) => setNoteQuery(event.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          {!theoremNotes.length ? (
+            <p className="empty-state">No notes yet. Right-click a theorem and choose Create note.</p>
+          ) : null}
+          {theoremNotes.length && !filteredNotes.length ? (
+            <p className="empty-state">No notes match that search.</p>
+          ) : null}
+
+          <div className="notes-list">
+            {filteredNotes.map((note) => (
+              <article className="note-card" key={note.id}>
+                <div className="note-card-header">
+                  <div>
+                    <h3>{note.paperTitle || note.paperId || "Untitled paper"}</h3>
+                    <p className="paper-id">{note.paperId || "Unlinked paper"}</p>
+                  </div>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => onOpenNotePaper(note.paperId)}
+                    disabled={!note.paperId}
+                  >
+                    Open paper
+                  </button>
+                </div>
+
+                <div className="note-card-reference">
+                  <span className="sync-label">Reference</span>
+                  {note.referenceUrl ? (
+                    <a href={note.referenceUrl} target="_blank" rel="noreferrer">
+                      {note.referenceLabel || note.referenceUrl}
+                    </a>
+                  ) : (
+                    <span>{note.referenceLabel || "Reference unavailable"}</span>
+                  )}
+                </div>
+
+                <p className="note-card-theorem">{note.theoremText}</p>
+                <p className="note-card-body">{note.noteText}</p>
+                <p className="paper-meta">
+                  Saved {new Date(note.updatedAt || note.createdAt).toLocaleString()}
+                </p>
               </article>
             ))}
           </div>

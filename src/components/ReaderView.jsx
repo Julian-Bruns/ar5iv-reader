@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { fetchPaperBibtex, primePaperBibtex } from "../lib/citation";
 import { installMathCopy } from "../lib/mathCopy";
+import {
+  buildTheoremCopyText,
+  buildTheoremPayload,
+  findTheoremFromTarget
+} from "../lib/theoremNotes";
 import PdfReaderSurface from "./PdfReaderSurface";
 
 export default function ReaderView({
@@ -18,6 +23,7 @@ export default function ReaderView({
   onExport,
   onDelete,
   showToast,
+  onCreateTheoremNote,
   onPdfFirstPageRender,
   onPdfRenderFailure,
   onPdfMathActivationRequest
@@ -27,6 +33,9 @@ export default function ReaderView({
   const [dismissedNotice, setDismissedNotice] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [copyBibtexBusy, setCopyBibtexBusy] = useState(false);
+  const [theoremMenu, setTheoremMenu] = useState(null);
+  const [noteComposer, setNoteComposer] = useState(null);
+  const [noteDraft, setNoteDraft] = useState("");
   const [dragState, setDragState] = useState({ draggedKey: "", targetKey: "", placement: "before" });
 
   useEffect(() => {
@@ -57,9 +66,44 @@ export default function ReaderView({
   }, [paper?.id, paper?.sanitizedHtml]);
 
   useEffect(() => {
+    const article = articleRef.current;
+    if (!article || !paper?.sanitizedHtml || paper?.view !== "html") {
+      return undefined;
+    }
+
+    const handleContextMenu = (event) => {
+      const theoremNode = findTheoremFromTarget(event.target);
+      if (!theoremNode) {
+        setTheoremMenu(null);
+        return;
+      }
+
+      const payload = buildTheoremPayload(theoremNode, paper, window.location.href);
+      if (!payload?.theoremTextWithoutProof) {
+        return;
+      }
+
+      event.preventDefault();
+      setTheoremMenu({
+        x: event.clientX,
+        y: event.clientY,
+        payload
+      });
+    };
+
+    article.addEventListener("contextmenu", handleContextMenu);
+    return () => {
+      article.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [paper, paper?.id, paper?.sanitizedHtml, paper?.view]);
+
+  useEffect(() => {
     setDismissedNotice(false);
     setShowActionMenu(false);
     setCopyBibtexBusy(false);
+    setTheoremMenu(null);
+    setNoteComposer(null);
+    setNoteDraft("");
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
 
   useEffect(() => {
@@ -89,6 +133,47 @@ export default function ReaderView({
       document.removeEventListener("click", handleDocumentClick);
     };
   }, [showActionMenu]);
+
+  useEffect(() => {
+    if (!theoremMenu) {
+      return undefined;
+    }
+
+    const handleDocumentClick = (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".theorem-menu-shell")) {
+        return;
+      }
+
+      setTheoremMenu(null);
+    };
+
+    document.addEventListener("click", handleDocumentClick);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick);
+    };
+  }, [theoremMenu]);
+
+  useEffect(() => {
+    if (!theoremMenu && !noteComposer) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setTheoremMenu(null);
+      setNoteComposer(null);
+      setNoteDraft("");
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [theoremMenu, noteComposer]);
 
   useEffect(() => {
     if (!tabs?.length) {
@@ -170,6 +255,36 @@ export default function ReaderView({
     } finally {
       setCopyBibtexBusy(false);
     }
+  }
+
+  async function handleTheoremCopy(includeProof) {
+    if (!theoremMenu?.payload) {
+      return;
+    }
+
+    try {
+      await copyText(buildTheoremCopyText(theoremMenu.payload, { includeProof }));
+      showToastRef.current(includeProof ? "Copied theorem with proof." : "Copied theorem.");
+      setTheoremMenu(null);
+    } catch (error) {
+      console.error("Theorem copy failed", error);
+      showToastRef.current("Clipboard copy failed.");
+    }
+  }
+
+  async function handleSaveTheoremNote() {
+    if (!noteComposer?.payload || !noteDraft.trim()) {
+      return;
+    }
+
+    const didSave = await onCreateTheoremNote?.(noteComposer.payload, noteDraft);
+    if (!didSave) {
+      return;
+    }
+
+    setNoteComposer(null);
+    setNoteDraft("");
+    showToastRef.current("Note saved.");
   }
 
   return (
@@ -416,6 +531,90 @@ export default function ReaderView({
           )}
         </div>
       </section>
+
+      {theoremMenu ? (
+        <div
+          className="theorem-menu-shell"
+          style={{
+            left: `${theoremMenu.x}px`,
+            top: `${theoremMenu.y}px`
+          }}
+        >
+          <div className="theorem-menu" role="menu" aria-label="Theorem actions">
+            <button role="menuitem" type="button" onClick={() => void handleTheoremCopy(true)}>
+              Copy with proof
+            </button>
+            <button role="menuitem" type="button" onClick={() => void handleTheoremCopy(false)}>
+              Copy without proof
+            </button>
+            <button
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                setNoteComposer({ payload: theoremMenu.payload });
+                setNoteDraft("");
+                setTheoremMenu(null);
+              }}
+            >
+              Create note
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {noteComposer ? (
+        <div className="note-modal-backdrop" role="presentation">
+          <section className="card note-modal" role="dialog" aria-modal="true" aria-label="Create note">
+            <div className="settings-modal-header">
+              <div className="section-heading section-heading--compact">
+                <h2>Create Note</h2>
+                <p>{noteComposer.payload.referenceLabel || "Selected theorem"}</p>
+              </div>
+              <button
+                className="icon-button icon-button--close"
+                type="button"
+                aria-label="Close note composer"
+                onClick={() => {
+                  setNoteComposer(null);
+                  setNoteDraft("");
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="note-modal-content">
+              <p className="note-modal-theorem">{noteComposer.payload.theoremTextWithoutProof}</p>
+              <textarea
+                className="note-modal-input"
+                value={noteDraft}
+                placeholder="Write your note here"
+                onInput={(event) => setNoteDraft(event.currentTarget.value)}
+              />
+              <div className="note-modal-actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setNoteComposer(null);
+                    setNoteDraft("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!noteDraft.trim()}
+                  onClick={() => void handleSaveTheoremNote()}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
