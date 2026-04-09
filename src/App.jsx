@@ -419,6 +419,8 @@ export default function App() {
                 view: "pdf",
                 pdfState: {
                   blob: pdfAsset.blob,
+                  documentUrl: blobUrl,
+                  sourceMode: "saved-blob",
                   blobUrl,
                   relay: "saved",
                   pdfFingerprint: record.pdfFingerprint,
@@ -1089,73 +1091,6 @@ export default function App() {
         paper: primedPaper
       };
     });
-
-    void fetchBlobWithFallback(paper.pdfUrl)
-      .then(({ blob, relay }) => {
-        const objectUrl = createObjectUrl(blob);
-        if (!objectUrl) {
-          throw new Error("Blob URL creation failed.");
-        }
-
-        if (pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId) {
-          revokeObjectUrl(objectUrl);
-          return;
-        }
-
-        patchPdfFallbackPaper(
-          tabKey,
-          (currentPaper) => ({
-            ...currentPaper,
-            pdfState: {
-              ...currentPaper.pdfState,
-              blob,
-              blobUrl: objectUrl,
-              relay,
-              pdfByteLength: Number(blob.size || 0),
-              loadStatus: "loading"
-            }
-          }),
-          { requestId }
-        );
-
-        void hashBlob(blob).then((pdfFingerprint) => {
-          if (pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId) {
-            return;
-          }
-
-          patchPdfFallbackPaper(
-            tabKey,
-            (currentPaper) => ({
-              ...currentPaper,
-              pdfState: {
-                ...currentPaper.pdfState,
-                pdfFingerprint
-              }
-            }),
-            { requestId }
-          );
-        });
-      })
-      .catch(() => {
-        if (pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId) {
-          return;
-        }
-
-        patchPdfFallbackPaper(
-          tabKey,
-          (currentPaper) => ({
-            ...currentPaper,
-            pdfState: {
-              ...currentPaper.pdfState,
-              blobUrl: "",
-              relay: "",
-              loadStatus: "error"
-            }
-          }),
-          { requestId }
-        );
-      });
-
   }
 
   async function ensurePdfMathReady(tabKey) {
@@ -1207,13 +1142,13 @@ export default function App() {
     return acquirePromise;
   }
 
-  function handlePdfFirstPageRender(tabKey, blobUrl) {
-    if (!tabKey || !blobUrl) {
+  function handlePdfFirstPageRender(tabKey, documentUrl) {
+    if (!tabKey || !documentUrl) {
       return;
     }
 
     patchPdfFallbackPaper(tabKey, (currentPaper) => {
-      if (currentPaper.pdfState.blobUrl !== blobUrl) {
+      if (currentPaper.pdfState.documentUrl !== documentUrl) {
         return null;
       }
 
@@ -1227,13 +1162,46 @@ export default function App() {
     });
   }
 
-  function handlePdfRenderFailure(tabKey, blobUrl) {
-    if (!tabKey || !blobUrl) {
+  function handlePdfRenderFailure(tabKey, documentUrl) {
+    if (!tabKey || !documentUrl) {
+      return;
+    }
+
+    const currentTab = openTabsRef.current.find((tab) => tab.key === tabKey);
+    if (!isPdfFallbackPaper(currentTab?.paper)) {
+      return;
+    }
+
+    if (currentTab.paper.pdfState.documentUrl !== documentUrl) {
+      return;
+    }
+
+    if (currentTab.paper.pdfState.sourceMode !== "remote-direct") {
+      patchPdfFallbackPaper(tabKey, (currentPaper) => {
+        if (currentPaper.pdfState.documentUrl !== documentUrl) {
+          return null;
+        }
+
+        return {
+          ...currentPaper,
+          pdfState: {
+            ...currentPaper.pdfState,
+            documentUrl: "",
+            sourceMode: "",
+            blob: null,
+            blobUrl: "",
+            loadStatus: "error"
+          }
+        };
+      });
       return;
     }
 
     patchPdfFallbackPaper(tabKey, (currentPaper) => {
-      if (currentPaper.pdfState.blobUrl !== blobUrl) {
+      if (
+        currentPaper.pdfState.documentUrl !== documentUrl ||
+        currentPaper.pdfState.sourceMode !== "remote-direct"
+      ) {
         return null;
       }
 
@@ -1241,11 +1209,90 @@ export default function App() {
         ...currentPaper,
         pdfState: {
           ...currentPaper.pdfState,
-          blobUrl: "",
-          loadStatus: "error"
+          loadStatus: "loading"
         }
       };
     });
+
+    void fetchBlobWithFallback(currentTab.paper.pdfUrl)
+      .then(({ blob, relay }) => {
+        const objectUrl = createObjectUrl(blob);
+        if (!objectUrl) {
+          throw new Error("Blob URL creation failed.");
+        }
+
+        let didApply = false;
+        patchPdfFallbackPaper(tabKey, (currentPaper) => {
+          if (
+            currentPaper.pdfState.documentUrl !== documentUrl ||
+            currentPaper.pdfState.sourceMode !== "remote-direct"
+          ) {
+            return null;
+          }
+
+          didApply = true;
+          return {
+            ...currentPaper,
+            pdfState: {
+              ...currentPaper.pdfState,
+              documentUrl: objectUrl,
+              sourceMode: "blob-fallback",
+              blob,
+              blobUrl: objectUrl,
+              relay,
+              pdfByteLength: Number(blob.size || 0),
+              loadStatus: "loading"
+            }
+          };
+        });
+
+        if (!didApply) {
+          revokeObjectUrl(objectUrl);
+          return;
+        }
+
+        void hashBlob(blob).then((pdfFingerprint) => {
+          patchPdfFallbackPaper(tabKey, (currentPaper) => {
+            if (
+              currentPaper.pdfState.documentUrl !== objectUrl ||
+              currentPaper.pdfState.sourceMode !== "blob-fallback"
+            ) {
+              return null;
+            }
+
+            return {
+              ...currentPaper,
+              pdfState: {
+                ...currentPaper.pdfState,
+                pdfFingerprint
+              }
+            };
+          });
+        });
+      })
+      .catch(() => {
+        patchPdfFallbackPaper(tabKey, (currentPaper) => {
+          if (
+            currentPaper.pdfState.documentUrl !== documentUrl ||
+            currentPaper.pdfState.sourceMode !== "remote-direct"
+          ) {
+            return null;
+          }
+
+          return {
+            ...currentPaper,
+            pdfState: {
+              ...currentPaper.pdfState,
+              documentUrl: "",
+              sourceMode: "",
+              blob: null,
+              blobUrl: "",
+              relay: "",
+              loadStatus: "error"
+            }
+          };
+        });
+      });
   }
 
   function updateResolvedPaperTitle(paperId, nextTitle, { replaceableTitles = [] } = {}) {
@@ -1391,8 +1438,25 @@ export default function App() {
     setSaving(true);
     try {
       await ensurePersistentStorage();
+      let paperToSave = reader.paper;
       if (reader.paper.view === "pdf") {
-        await savePdfPaper(reader.paper, {
+        if (!(reader.paper.pdfState?.blob instanceof Blob)) {
+          const { blob, relay } = await fetchBlobWithFallback(reader.paper.pdfUrl);
+          const pdfFingerprint =
+            String(reader.paper.pdfState?.pdfFingerprint || "").trim() || (await hashBlob(blob));
+          paperToSave = {
+            ...reader.paper,
+            pdfState: {
+              ...reader.paper.pdfState,
+              blob,
+              relay,
+              pdfFingerprint,
+              pdfByteLength: Number(blob.size || 0)
+            }
+          };
+        }
+
+        await savePdfPaper(paperToSave, {
           deviceId: deviceIdentityRef.current?.deviceId || "local"
         });
       } else if (reader.paper.view === "html") {
@@ -1404,7 +1468,7 @@ export default function App() {
       }
       await refreshLibrary();
       const savedPaper = {
-        ...reader.paper,
+        ...paperToSave,
         mode: "saved"
       };
       updateOpenTabs((currentTabs) =>
@@ -2183,11 +2247,17 @@ export default function App() {
           onExport={() => handleExportPaper(reader.paper.id)}
           onDelete={() => handleDeletePaper(reader.paper.id)}
           showToast={showToast}
-          onPdfFirstPageRender={() =>
-            handlePdfFirstPageRender(activeTabKey, reader.paper?.pdfState?.blobUrl || "")
+          onPdfFirstPageRender={(documentUrl) =>
+            handlePdfFirstPageRender(
+              activeTabKey,
+              documentUrl || reader.paper?.pdfState?.documentUrl || ""
+            )
           }
-          onPdfRenderFailure={() =>
-            handlePdfRenderFailure(activeTabKey, reader.paper?.pdfState?.blobUrl || "")
+          onPdfRenderFailure={(_error, documentUrl) =>
+            handlePdfRenderFailure(
+              activeTabKey,
+              documentUrl || reader.paper?.pdfState?.documentUrl || ""
+            )
           }
           onPdfMathActivationRequest={() => ensurePdfMathReady(activeTabKey)}
         />

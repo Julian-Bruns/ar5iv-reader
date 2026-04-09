@@ -4,9 +4,7 @@ import { getCachedPdfRender, putCachedPdfRender } from "../lib/pdfRenderCache";
 import { loadPdfJs } from "./pdfJsClient";
 import { canRunPdfMathCopy, getPdfSurfaceStatus } from "./pdfSurfaceStatus";
 
-const LOW_QUALITY_MAX_SCALE = 1.25;
-const HIGH_QUALITY_MAX_SCALE = 1.85;
-const HIGH_QUALITY_DWELL_MS = 1000;
+const FULL_QUALITY_MAX_SCALE = 2.5;
 const HIGH_QUALITY_SCROLL_IDLE_MS = 240;
 const PAGE_RENDER_ROOT_MARGIN = "480px 0px";
 const PAGE_KEEPALIVE_MARGIN = 1;
@@ -15,6 +13,8 @@ const HIGH_QUALITY_MEMORY_LIMIT = 16;
 const FORMULA_CROP_SIZE = 600;
 
 const EMPTY_PDF_STATE = Object.freeze({
+  documentUrl: "",
+  sourceMode: "",
   blobUrl: "",
   blob: null,
   pdfFingerprint: "",
@@ -38,9 +38,7 @@ export default function PdfReaderSurface({
   const firstPageNotifiedRef = useRef(false);
   const onFirstPageRenderRef = useRef(onFirstPageRender);
   const onRenderFailureRef = useRef(onRenderFailure);
-  const trackedHoverPageRef = useRef(0);
-  const highQualityHoverTimerRef = useRef(0);
-  const triggerHighQualityHoverRef = useRef(null);
+  const highQualityPromotionTimerRef = useRef(0);
   const lastScrollAtRef = useRef(0);
   const pdfDocumentRef = useRef(null);
   const renderedQualitiesRef = useRef(new Map());
@@ -51,6 +49,7 @@ export default function PdfReaderSurface({
   const highQualityCacheRef = useRef(new Map());
   const visiblePagesRef = useRef(new Set());
   const ensurePageQualityRef = useRef(null);
+  const scheduleHighQualityRendersRef = useRef(null);
   const handleSurfaceClickRef = useRef(null);
   const [renderState, setRenderState] = useState({
     totalPages: 0,
@@ -88,13 +87,16 @@ export default function PdfReaderSurface({
     pageShellsRef.current.clear();
     visiblePagesRef.current.clear();
     ensurePageQualityRef.current = null;
+    scheduleHighQualityRendersRef.current = null;
     pdfDocumentRef.current = null;
+    window.clearTimeout(highQualityPromotionTimerRef.current);
+    highQualityPromotionTimerRef.current = 0;
 
     if (pagesRef.current) {
       pagesRef.current.replaceChildren();
       pagesRef.current.style.cursor = "";
     }
-  }, [paper?.id, pdfState.blobUrl]);
+  }, [paper?.id, pdfState.documentUrl]);
 
   useEffect(() => {
     if (!interactionState) {
@@ -111,7 +113,7 @@ export default function PdfReaderSurface({
   }, [interactionState, pdfState.loadStatus, pdfState.mathCopyReason, pdfState.mathCopyStatus]);
 
   useEffect(() => {
-    if (!pagesRef.current || !pdfState.blobUrl) {
+    if (!pagesRef.current || !pdfState.documentUrl) {
       return undefined;
     }
 
@@ -143,16 +145,16 @@ export default function PdfReaderSurface({
       }
 
       rejectAllWaiters(waiters, error);
-      onRenderFailureRef.current?.(error);
+      onRenderFailureRef.current?.(error, pdfState.documentUrl);
     };
 
-    const clearHoverTimer = () => {
-      if (!highQualityHoverTimerRef.current) {
+    const clearPromotionTimer = () => {
+      if (!highQualityPromotionTimerRef.current) {
         return;
       }
 
-      window.clearTimeout(highQualityHoverTimerRef.current);
-      highQualityHoverTimerRef.current = 0;
+      window.clearTimeout(highQualityPromotionTimerRef.current);
+      highQualityPromotionTimerRef.current = 0;
     };
 
     const getQueuedIndex = (pageNumber) =>
@@ -218,10 +220,6 @@ export default function PdfReaderSurface({
       const keepMax = maxVisible + PAGE_KEEPALIVE_MARGIN;
 
       for (const [pageNumber, quality] of renderedQualitiesRef.current) {
-        if (quality === "high" && pageNumber === trackedHoverPageRef.current) {
-          continue;
-        }
-
         if (activeRenderJob?.pageNumber === pageNumber) {
           continue;
         }
@@ -233,6 +231,62 @@ export default function PdfReaderSurface({
         resetPageShellToPlaceholder(pageNumber);
       }
     };
+
+    const scheduleHighQualityRenders = ({
+      pageNumbers = null,
+      prioritizePage = 0
+    } = {}) => {
+      clearPromotionTimer();
+
+      const promoteVisiblePages = () => {
+        if (disposed || renderSequenceRef.current !== currentSequence) {
+          return;
+        }
+
+        const idleForMs = Date.now() - lastScrollAtRef.current;
+        if (activeRenderJob || idleForMs < HIGH_QUALITY_SCROLL_IDLE_MS) {
+          highQualityPromotionTimerRef.current = window.setTimeout(
+            promoteVisiblePages,
+            Math.max(HIGH_QUALITY_SCROLL_IDLE_MS - idleForMs, 32)
+          );
+          return;
+        }
+
+        const candidatePageNumbers =
+          Array.isArray(pageNumbers) && pageNumbers.length
+            ? [...new Set(pageNumbers)]
+            : [...visiblePagesRef.current].sort((left, right) => left - right);
+        const eligiblePageNumbers = candidatePageNumbers.filter(
+          (pageNumber) =>
+            pageShells.has(pageNumber) &&
+            (visiblePagesRef.current.has(pageNumber) || pageNumber === 1)
+        );
+
+        if (!eligiblePageNumbers.length) {
+          return;
+        }
+
+        if (prioritizePage && eligiblePageNumbers.includes(prioritizePage)) {
+          queueRender(prioritizePage, "high", {
+            prioritize: true
+          });
+        }
+
+        for (const pageNumber of eligiblePageNumbers) {
+          if (pageNumber === prioritizePage) {
+            continue;
+          }
+
+          queueRender(pageNumber, "high", {
+            prioritize: pageNumber === 1
+          });
+        }
+      };
+
+      highQualityPromotionTimerRef.current = window.setTimeout(promoteVisiblePages, 0);
+    };
+
+    scheduleHighQualityRendersRef.current = scheduleHighQualityRenders;
 
     const queueRender = (pageNumber, quality, { prioritize = false } = {}) => {
       const currentQuality = renderedQualitiesRef.current.get(pageNumber) || "none";
@@ -347,6 +401,12 @@ export default function PdfReaderSurface({
           );
           bindCanvasClick(restoredCanvas, handleSurfaceClickRef);
           notifyFirstPageRendered(nextPageNumber);
+          if (nextQuality === "low") {
+            scheduleHighQualityRenders({
+              pageNumbers: [nextPageNumber],
+              prioritizePage: nextPageNumber === 1 ? 1 : 0
+            });
+          }
           activeRenderJob = null;
           await nextAnimationFrame();
           void processNextRender();
@@ -387,6 +447,12 @@ export default function PdfReaderSurface({
           force: nextQuality === "high"
         });
         notifyFirstPageRendered(nextPageNumber);
+        if (nextQuality === "low") {
+          scheduleHighQualityRenders({
+            pageNumbers: [nextPageNumber],
+            prioritizePage: nextPageNumber === 1 ? 1 : 0
+          });
+        }
 
         try {
           page.cleanup?.();
@@ -422,46 +488,7 @@ export default function PdfReaderSurface({
       }
 
       firstPageNotifiedRef.current = true;
-      onFirstPageRenderRef.current?.();
-    };
-
-    const maybePromoteHoveredPage = () => {
-      const trackedHoverPage = trackedHoverPageRef.current;
-      if (!trackedHoverPage || !pdfDocumentRef.current || !visiblePagesRef.current.has(trackedHoverPage)) {
-        return;
-      }
-
-      if (activeRenderJob) {
-        highQualityHoverTimerRef.current = window.setTimeout(() => {
-          highQualityHoverTimerRef.current = 0;
-          maybePromoteHoveredPage();
-        }, HIGH_QUALITY_SCROLL_IDLE_MS);
-        return;
-      }
-
-      if (Date.now() - lastScrollAtRef.current < HIGH_QUALITY_SCROLL_IDLE_MS) {
-        highQualityHoverTimerRef.current = window.setTimeout(() => {
-          highQualityHoverTimerRef.current = 0;
-          maybePromoteHoveredPage();
-        }, HIGH_QUALITY_SCROLL_IDLE_MS);
-        return;
-      }
-
-      const currentQuality = renderedQualitiesRef.current.get(trackedHoverPage) || "none";
-      if (currentQuality === "high") {
-        return;
-      }
-
-      if (currentQuality === "none") {
-        queueRender(trackedHoverPage, "low", {
-          prioritize: true
-        });
-        return;
-      }
-
-      queueRender(trackedHoverPage, "high", {
-        prioritize: true
-      });
+      onFirstPageRenderRef.current?.(pdfState.documentUrl);
     };
 
     const renderDocument = async () => {
@@ -472,7 +499,8 @@ export default function PdfReaderSurface({
         }
 
         loadingTask = pdfjs.getDocument({
-          url: pdfState.blobUrl
+          url: pdfState.documentUrl,
+          enableHWA: true
         });
         pdfDocumentRef.current = await loadingTask.promise;
 
@@ -503,6 +531,10 @@ export default function PdfReaderSurface({
         renderObserver = createPageRenderObserver((pageNumber) => {
           visiblePagesRef.current.add(pageNumber);
           queueRender(pageNumber, "low");
+          scheduleHighQualityRenders({
+            pageNumbers: [pageNumber],
+            prioritizePage: pageNumber === 1 ? 1 : 0
+          });
           pruneDistantPages();
         }, (pageNumber) => {
           visiblePagesRef.current.delete(pageNumber);
@@ -522,11 +554,10 @@ export default function PdfReaderSurface({
             prioritize: pageNumber === 1
           });
         }
-
-        triggerHighQualityHoverRef.current = (pageNumber) => {
-          trackedHoverPageRef.current = pageNumber;
-          maybePromoteHoveredPage();
-        };
+        scheduleHighQualityRenders({
+          pageNumbers: [1],
+          prioritizePage: 1
+        });
       } catch (error) {
         failRender(error);
       }
@@ -536,8 +567,8 @@ export default function PdfReaderSurface({
 
     return () => {
       disposed = true;
-      clearHoverTimer();
-      triggerHighQualityHoverRef.current = null;
+      clearPromotionTimer();
+      scheduleHighQualityRendersRef.current = null;
       renderObserver?.disconnect?.();
       rejectAllWaiters(waiters, new Error("PDF surface disposed."));
       clearHighQualityCache(highQualityCacheRef.current);
@@ -559,7 +590,7 @@ export default function PdfReaderSurface({
       }
       pdfDocumentRef.current = null;
     };
-  }, [paper?.id, pdfState.blobUrl]);
+  }, [paper?.id, pdfState.documentUrl]);
 
   useEffect(() => {
     if (serviceSnapshot.phase !== "ready" || !pagesRef.current) {
@@ -569,7 +600,7 @@ export default function PdfReaderSurface({
     for (const [pageNumber, canvas] of renderedCanvasesRef.current) {
       void maybeDetectFormulasForCanvas(pageNumber, canvas, true);
     }
-  }, [serviceSnapshot.phase, pdfState.blobUrl]);
+  }, [serviceSnapshot.phase, pdfState.documentUrl]);
 
   useEffect(() => {
     const viewport = pagesRef.current;
@@ -582,19 +613,6 @@ export default function PdfReaderSurface({
         event.target instanceof Element ? event.target.closest("[data-pdf-page-canvas='true']") : null;
       const pageShell =
         event.target instanceof Element ? event.target.closest("[data-pdf-page='true']") : null;
-      const nextPageNumber = Number(pageShell?.dataset?.pageNumber || 0);
-      if (trackedHoverPageRef.current !== nextPageNumber) {
-        trackedHoverPageRef.current = nextPageNumber;
-        window.clearTimeout(highQualityHoverTimerRef.current);
-        highQualityHoverTimerRef.current = 0;
-
-        if (nextPageNumber) {
-          highQualityHoverTimerRef.current = window.setTimeout(() => {
-            highQualityHoverTimerRef.current = 0;
-            triggerHighQualityHoverRef.current?.(nextPageNumber);
-          }, HIGH_QUALITY_DWELL_MS);
-        }
-      }
 
       if (!(canvas instanceof HTMLCanvasElement) || !(pageShell instanceof HTMLElement)) {
         viewport.style.cursor = "";
@@ -625,9 +643,6 @@ export default function PdfReaderSurface({
     };
 
     const handlePointerLeave = () => {
-      trackedHoverPageRef.current = 0;
-      window.clearTimeout(highQualityHoverTimerRef.current);
-      highQualityHoverTimerRef.current = 0;
       viewport.style.cursor = "";
       for (const pageShell of pageShellsRef.current.values()) {
         clearFormulaOverlay(pageShell);
@@ -636,6 +651,7 @@ export default function PdfReaderSurface({
 
     const handleScroll = () => {
       lastScrollAtRef.current = Date.now();
+      scheduleHighQualityRendersRef.current?.();
     };
 
     viewport.addEventListener("pointermove", handlePointerUpdate);
@@ -652,12 +668,11 @@ export default function PdfReaderSurface({
       viewport.removeEventListener("pointerleave", handlePointerLeave);
       viewport.removeEventListener("scroll", handleScroll);
       window.removeEventListener("scroll", handleScroll);
-      window.clearTimeout(highQualityHoverTimerRef.current);
-      highQualityHoverTimerRef.current = 0;
-      trackedHoverPageRef.current = 0;
+      window.clearTimeout(highQualityPromotionTimerRef.current);
+      highQualityPromotionTimerRef.current = 0;
       viewport.style.cursor = "";
     };
-  }, [pdfState.blobUrl, serviceSnapshot.phase]);
+  }, [pdfState.documentUrl, serviceSnapshot.phase]);
 
   const effectiveState = renderState.failed
     ? {
@@ -773,7 +788,7 @@ export default function PdfReaderSurface({
         </p>
       </div>
 
-      {pdfState.blobUrl ? (
+      {pdfState.documentUrl ? (
         <div
           ref={pagesRef}
           className={`pdf-surface-pages${canInteract ? " pdf-surface-pages--interactive" : ""}`}
@@ -881,12 +896,12 @@ function createPdfPageShell(pageNumber, aspectRatio) {
 function startPdfPageRender(page, pageShell, quality = "low") {
   const baseViewport = page.getViewport({ scale: 1 });
   const maxWidth = Math.max(280, Math.min((pageShell.clientWidth || 960) - 24, 960));
-  const displayScale = Math.max(0.75, Math.min(HIGH_QUALITY_MAX_SCALE, maxWidth / baseViewport.width));
-  const targetDpr = Math.max(1, Math.min(globalThis.devicePixelRatio || 1, HIGH_QUALITY_MAX_SCALE));
+  const displayScale = Math.max(0.75, maxWidth / baseViewport.width);
+  const targetDpr = Math.max(1, Math.min(globalThis.devicePixelRatio || 1, 2));
   const renderScale =
     quality === "high"
-      ? Math.max(displayScale, Math.min(displayScale * targetDpr, HIGH_QUALITY_MAX_SCALE))
-      : Math.max(1.0, Math.min(displayScale, LOW_QUALITY_MAX_SCALE));
+      ? Math.min(displayScale * targetDpr, FULL_QUALITY_MAX_SCALE)
+      : displayScale;
   const renderViewport = page.getViewport({ scale: renderScale });
   const displayViewport = page.getViewport({ scale: displayScale });
   const canvas = document.createElement("canvas");

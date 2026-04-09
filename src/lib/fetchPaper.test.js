@@ -27,6 +27,8 @@ describe("buildPdfFallbackPaper", () => {
       view: "pdf",
       notice: PDF_FALLBACK_NOTICE,
       pdfState: {
+        documentUrl: "",
+        sourceMode: "",
         blob: null,
         blobUrl: "",
         relay: "",

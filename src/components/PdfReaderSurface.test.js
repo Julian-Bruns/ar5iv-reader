@@ -192,8 +192,8 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/onEnsureMathReady/);
     expect(source).toMatch(/onFirstPageRenderRef\.current = onFirstPageRender;/);
     expect(source).toMatch(/onRenderFailureRef\.current = onRenderFailure;/);
-    expect(source).toMatch(/onFirstPageRenderRef\.current\?\.\(\);/);
-    expect(source).toMatch(/onRenderFailureRef\.current\?\.\(error\);/);
+    expect(source).toMatch(/onFirstPageRenderRef\.current\?\.\(pdfState\.documentUrl\);/);
+    expect(source).toMatch(/onRenderFailureRef\.current\?\.\(error, pdfState\.documentUrl\);/);
     expect(source).toMatch(/const activationSnapshot = await onEnsureMathReady\?\.\(\);/);
     expect(source).toMatch(/handleSurfaceClickRef\.current = handleSurfaceClick;/);
     expect(source).toMatch(/bindCanvasClick\(restoredCanvas, handleSurfaceClickRef\);/);
@@ -267,10 +267,45 @@ describe("PdfReaderSurface callback and toast contract", () => {
     expect(source).toMatch(/void maybeDetectFormulasForCanvas\(nextPageNumber, renderJob\.canvas, \{[\s\S]*notifyFirstPageRendered\(nextPageNumber\);/);
   });
 
+  it("loads PDFs from documentUrl and keeps pdf.js range loading enabled", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/if \(!pagesRef\.current \|\| !pdfState\.documentUrl\) \{/);
+    expect(source).toMatch(/loadingTask = pdfjs\.getDocument\(\{[\s\S]*url: pdfState\.documentUrl,[\s\S]*enableHWA: true[\s\S]*\}\);/);
+    expect(source).not.toMatch(/disableRange:/);
+    expect(source).not.toMatch(/disableStream:/);
+    expect(source).not.toMatch(/disableAutoFetch:/);
+  });
+
+  it("promotes visible pages to full quality after scroll idle instead of hover dwell", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/const scheduleHighQualityRenders = \(\{/);
+    expect(source).toMatch(/queueRender\(pageNumber, "high"/);
+    expect(source).toMatch(/scheduleHighQualityRendersRef\.current\?\.\(\);/);
+    expect(source).not.toMatch(/trackedHoverPageRef/);
+    expect(source).not.toMatch(/HIGH_QUALITY_DWELL_MS/);
+    expect(source).not.toMatch(/pointermove[\s\S]*setTimeout\([\s\S]*triggerHighQualityHoverRef/);
+  });
+
+  it("uses preview-at-display-scale and full renders up to the configured DPR ceiling", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/const displayScale = Math\.max\(0\.75, maxWidth \/ baseViewport\.width\);/);
+    expect(source).toMatch(/const targetDpr = Math\.max\(1, Math\.min\(globalThis\.devicePixelRatio \|\| 1, 2\)\);/);
+    expect(source).toMatch(/quality === "high"[\s\S]*Math\.min\(displayScale \* targetDpr, FULL_QUALITY_MAX_SCALE\)[\s\S]*: displayScale;/);
+  });
+
+  it("rerenders cached previews at full quality instead of leaving them degraded", () => {
+    const source = fs.readFileSync(surfacePath, "utf8");
+
+    expect(source).toMatch(/if \(nextQuality === "low"\) \{[\s\S]*scheduleHighQualityRenders\(\{[\s\S]*pageNumbers: \[nextPageNumber\]/);
+  });
+
   it("does not restart pdf.js rendering for unrelated paper object updates", () => {
     const source = fs.readFileSync(surfacePath, "utf8");
 
-    expect(source).toMatch(/\}, \[paper\?\.id, pdfState\.blobUrl\]\);/);
-    expect(source).not.toMatch(/\}, \[paper, pdfState\.blobUrl\]\);/);
+    expect(source).toMatch(/\}, \[paper\?\.id, pdfState\.documentUrl\]\);/);
+    expect(source).not.toMatch(/\}, \[paper, pdfState\.documentUrl\]\);/);
   });
 });
