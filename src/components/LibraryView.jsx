@@ -275,7 +275,7 @@ export default function LibraryView({
                 <section className="tools-subsection">
                   <div className="section-heading section-heading--compact">
                     <h2>Backup</h2>
-                    <p>Download one backup file now, or keep one selected file updated here.</p>
+                    <p>Download one backup file now, optionally write a paper folder export, or keep one selected file updated here.</p>
                   </div>
                   <div className="setup-actions">
                     <button className="primary-button" type="button" onClick={onDownloadBackup}>
