@@ -22,7 +22,7 @@ describe("exportImport", () => {
 
   it("merges imported snapshots with the current library instead of replacing newer papers", async () => {
     mocks.exportLibrarySnapshot.mockResolvedValue({
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: "2026-03-14T10:00:00.000Z",
       papers: [
         {
@@ -57,13 +57,13 @@ describe("exportImport", () => {
       text: async () =>
         JSON.stringify({
           format: "ar5iv-reader-backup",
-          schemaVersion: 2,
+          schemaVersion: 3,
           appVersion: "0.3.0",
           buildId: "old-build",
           paperCount: 1,
           fingerprint: "old",
           librarySnapshot: {
-            schemaVersion: 2,
+            schemaVersion: 3,
             exportedAt: "2026-03-13T10:00:00.000Z",
             papers: [
               {

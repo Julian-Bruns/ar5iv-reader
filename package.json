@@ -10,11 +10,14 @@
     "test": "vitest run",
     "preview": "vite preview",
     "cf:pages:build": "bun install --frozen-lockfile && vite build",
+    "cf:r2:upload:ort-wasm": "bash ./scripts/upload-pdf-math-ort-wasm.sh",
     "cf:worker:dev": "cd worker && bunx wrangler@4.73.0 dev",
     "cf:worker:deploy": "cd worker && bunx wrangler@4.73.0 deploy"
   },
   "dependencies": {
     "dompurify": "^3.3.3",
+    "onnxruntime-web": "1.24.3",
+    "pdfjs-dist": "^5.5.207",
     "preact": "^10.29.0",
     "qrcode": "^1.5.4"
   },

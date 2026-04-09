@@ -1,3 +1,6 @@
+import { getPaper, savePaper } from "./db";
+import { fetchPaperById } from "./fetchPaper";
+
 const URL_MANIFEST_SCHEMA_VERSION = 1;
 
 export function buildUrlManifest(papers, appVersion = "") {
@@ -20,9 +23,9 @@ export function parseUrlManifest(text) {
 export async function restoreFromUrlManifest(manifestValue, options = {}) {
   const manifest =
     typeof manifestValue === "string" ? parseUrlManifest(manifestValue) : normalizeManifest(manifestValue);
-  const getExistingPaper = options.getExistingPaper || getPaperRecord;
+  const getExistingPaper = options.getExistingPaper || getPaper;
   const fetchPaper = options.fetchPaper || fetchPaperById;
-  const savePaperRecord = options.savePaperRecord || persistPaperRecord;
+  const savePaperRecord = options.savePaperRecord || savePaper;
   const deviceId = String(options.deviceId || "local").trim() || "local";
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   const concurrency = Math.max(1, Number(options.concurrency || 2) || 2);
@@ -138,6 +141,10 @@ function normalizeManifestPapers(papers) {
   const papersById = new Map();
 
   for (const paper of Array.isArray(papers) ? papers : []) {
+    if (paper?.contentType === "pdf") {
+      continue;
+    }
+
     const normalized = normalizeManifestPaper(paper);
     if (!normalized) {
       continue;
@@ -208,19 +215,4 @@ function stringifyError(error) {
   }
 
   return String(error);
-}
-
-async function fetchPaperById(...args) {
-  const module = await import("./fetchPaper");
-  return module.fetchPaperById(...args);
-}
-
-async function getPaperRecord(...args) {
-  const module = await import("./db");
-  return module.getPaper(...args);
-}
-
-async function persistPaperRecord(...args) {
-  const module = await import("./db");
-  return module.savePaper(...args);
 }

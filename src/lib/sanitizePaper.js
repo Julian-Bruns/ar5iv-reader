@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 
-const purifier = DOMPurify(window);
+let purifier = null;
 const UNSAFE_TAGS = [
   "script",
   "iframe",
@@ -140,6 +140,7 @@ let hooksInstalled = false;
 
 export function sanitizePaperHtml(rawHtml, { baseUrl = "" } = {}) {
   ensurePurifierHooks();
+  const activePurifier = getPurifier();
 
   const documentNode = new DOMParser().parseFromString(rawHtml, "text/html");
   const article =
@@ -155,7 +156,7 @@ export function sanitizePaperHtml(rawHtml, { baseUrl = "" } = {}) {
   absolutizeNodeUrls(fragment, baseUrl);
   tunePaperMarkup(fragment);
 
-  const sanitizedHtml = purifier.sanitize(
+  const sanitizedHtml = activePurifier.sanitize(
     fragment.outerHTML,
     createSanitizeOptions({
       html: true,
@@ -300,7 +301,9 @@ function ensurePurifierHooks() {
     return;
   }
 
-  purifier.addHook("uponSanitizeAttribute", (node, data) => {
+  const activePurifier = getPurifier();
+
+  activePurifier.addHook("uponSanitizeAttribute", (node, data) => {
     if (data.attrName.startsWith("on")) {
       data.keepAttr = false;
       return;
@@ -327,6 +330,7 @@ function createSanitizeOptions(profiles) {
 }
 
 function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
+  const activePurifier = getPurifier();
   const sourceForeignObjects = [...sourceRoot.querySelectorAll("foreignObject")];
   if (!sourceForeignObjects.length) {
     return sanitizedHtml;
@@ -347,7 +351,7 @@ function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
 
   for (let index = 0; index < count; index += 1) {
     const sanitizedForeignObject = sanitizedForeignObjects[index];
-    sanitizedForeignObject.innerHTML = purifier.sanitize(
+    sanitizedForeignObject.innerHTML = activePurifier.sanitize(
       sourceForeignObjects[index].innerHTML,
       createSanitizeOptions({
         html: true,
@@ -357,6 +361,16 @@ function restoreForeignObjectContent(sourceRoot, sanitizedHtml) {
   }
 
   return sanitizedRoot.outerHTML;
+}
+
+function getPurifier() {
+  if (!purifier) {
+    if (!globalThis.window) {
+      throw new Error("DOMPurify requires a browser window.");
+    }
+    purifier = DOMPurify(globalThis.window);
+  }
+  return purifier;
 }
 
 function cleanPaperTitle(value) {
@@ -372,6 +386,21 @@ function cleanPaperTitle(value) {
   title = normalizeWhitespace(title);
 
   return title;
+}
+
+function getPurifier() {
+  if (purifier) {
+    return purifier;
+  }
+
+  const activeWindow =
+    typeof window !== "undefined" ? window : typeof globalThis.window !== "undefined" ? globalThis.window : null;
+  if (!activeWindow) {
+    throw new Error("DOMPurify requires a window context.");
+  }
+
+  purifier = DOMPurify(activeWindow);
+  return purifier;
 }
 
 function simplifyDelimitedLatex(value) {

@@ -8,7 +8,10 @@ import {
   getPaper,
   getSetting,
   listPapers,
+  putAssetRecord,
+  putPaperRecord,
   savePaper,
+  savePdfPaper,
   setSetting,
   SETTING_KEYS
 } from "./lib/db";
@@ -27,9 +30,19 @@ import {
 import { appVersion as APP_VERSION, buildId as BUILD_ID } from "./lib/appBuild";
 import {
   buildPdfFallbackPaper,
+  fetchBlobWithFallback,
   fetchPaperAccessInfoById,
-  fetchPaperById,
+  fetchPaperById
 } from "./lib/fetchPaper";
+import * as pdfMathService from "./lib/pdfMathService";
+import {
+  createPrimedPdfFallbackPaper,
+  getPdfFallbackBlobUrl,
+  getPdfMathStateFromServiceSnapshot,
+  getSupersededPdfBlobUrls,
+  isPdfFallbackPaper,
+  reconcilePdfMathServiceTabs
+} from "./lib/pdfFallbackLifecycle";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
 import { extractArxivIdFromIncoming } from "./lib/arxiv";
 import { resolveLaunchTarget } from "./lib/launchTarget";
@@ -132,6 +145,10 @@ export default function App() {
   });
   const openTabsRef = useRef([]);
   const tabAssetRevokersRef = useRef(new Map());
+  const pdfFallbackPrimeRequestIdsRef = useRef(new Map());
+  const pdfFallbackPrimeSequenceRef = useRef(0);
+  const pdfMathAcquiredTabKeysRef = useRef(new Set());
+  const pdfMathAcquirePromisesRef = useRef(new Map());
   const relayClientRef = useRef(null);
   const sessionsRef = useRef(new Map());
   const deviceIdentityRef = useRef(null);
@@ -142,6 +159,7 @@ export default function App() {
   const activeInviteRef = useRef("");
   const pairJoinAttemptRef = useRef("");
   const lastAutoSyncAtRef = useRef(0);
+  const pdfHydrationRunningRef = useRef(false);
   const savingRef = useRef(false);
   const pendingSyncRef = useRef({
     force: false,
@@ -171,11 +189,36 @@ export default function App() {
   }, [pairedDevices]);
 
   useEffect(() => {
+    reconcilePdfMathServiceTabs({
+      tabs: openTabs,
+      acquiredTabKeys: pdfMathAcquiredTabKeysRef.current,
+      service: pdfMathService,
+      onStatus: (tabKey, snapshot) => {
+        patchPdfFallbackPaper(tabKey, (currentPaper) => ({
+          ...currentPaper,
+          pdfState: {
+            ...currentPaper.pdfState,
+            ...getPdfMathStateFromServiceSnapshot(snapshot)
+          }
+        }));
+      }
+    });
+  }, [openTabs]);
+
+  useEffect(() => {
     savingRef.current = saving;
     if (!saving) {
       void flushPendingNearbySync();
     }
   }, [saving]);
+
+  useEffect(() => {
+    if (library.loading) {
+      return;
+    }
+
+    void hydratePendingPdfPapers();
+  }, [library.loading, libraryFingerprint]);
 
   useEffect(() => {
     void refreshLibrary();
@@ -199,6 +242,16 @@ export default function App() {
         revoke();
       }
       tabAssetRevokersRef.current.clear();
+      for (const tab of openTabsRef.current) {
+        revokeObjectUrl(getPdfFallbackBlobUrl(tab));
+      }
+      pdfFallbackPrimeRequestIdsRef.current.clear();
+      pdfMathAcquirePromisesRef.current.clear();
+      const acquiredPdfTabCount = pdfMathAcquiredTabKeysRef.current.size;
+      pdfMathAcquiredTabKeysRef.current.clear();
+      for (let index = 0; index < acquiredPdfTabCount; index += 1) {
+        pdfMathService.release();
+      }
       relayClientRef.current?.stop();
       for (const session of sessionsRef.current.values()) {
         session.close();
@@ -350,6 +403,60 @@ export default function App() {
           }
 
           const assets = await getAssetRecordsForPaper(route.paperId);
+          if (record.contentType === "pdf") {
+            const pdfAsset = assets.find((asset) => asset.assetUrl === record.pdfUrl);
+            if (!(pdfAsset?.blob instanceof Blob)) {
+              throw new Error(`Saved PDF ${route.paperId} is missing its PDF asset.`);
+            }
+
+            const blobUrl = createObjectUrl(pdfAsset.blob);
+            if (!blobUrl) {
+              throw new Error("Blob URL creation failed.");
+            }
+
+            const savedPdfPaper = createPrimedPdfFallbackPaper(
+              {
+                ...record,
+                mode: "saved",
+                view: "pdf",
+                pdfState: {
+                  blob: pdfAsset.blob,
+                  documentUrl: blobUrl,
+                  sourceMode: "saved-blob",
+                  blobUrl,
+                  relay: "saved",
+                  pdfFingerprint: record.pdfFingerprint,
+                  pdfByteLength: record.pdfByteLength,
+                  loadStatus: "loading",
+                  mathCopyStatus: "pending",
+                  mathCopyReason: ""
+                }
+              },
+              pdfMathService.status()
+            );
+
+            if (activeRouteTab) {
+              updateOpenTabs((currentTabs) =>
+                upsertReaderTab(currentTabs, {
+                  key: activeRouteTab.key,
+                  id: activeRouteTab.id,
+                  href: buildSavedPaperUrl(activeRouteTab.id),
+                  title: savedPdfPaper.title || activeRouteTab.id,
+                  status: "ready",
+                  error: "",
+                  paper: savedPdfPaper
+                })
+              );
+            }
+
+            setReader({
+              status: "ready",
+              error: "",
+              paper: savedPdfPaper
+            });
+            return;
+          }
+
           const offlineHtml = rewriteHtmlAssetUrls(record.html, assets, record.ar5ivUrl);
           const metadata = extractPaperMetadata(record.html, record.id);
           const sanitizedHtml = sanitizePaperHtml(offlineHtml.html, {
@@ -443,17 +550,8 @@ export default function App() {
           };
 
           if (activeRouteTab) {
-            updateOpenTabs((currentTabs) =>
-              upsertReaderTab(currentTabs, {
-                key: activeRouteTab.key,
-                id: activeRouteTab.id,
-                href: activeRouteTab.href,
-                title: nextPaper.title || activeRouteTab.id,
-                status: "ready",
-                error: "",
-                paper: nextPaper
-              })
-            );
+            primePdfFallbackPaper(activeRouteTab.key, nextPaper);
+            return;
           }
 
           setReader({
@@ -487,17 +585,8 @@ export default function App() {
           };
 
           if (activeRouteTab) {
-            updateOpenTabs((currentTabs) =>
-              upsertReaderTab(currentTabs, {
-                key: activeRouteTab.key,
-                id: activeRouteTab.id,
-                href: activeRouteTab.href,
-                title: nextPaper.title || activeRouteTab.id,
-                status: "ready",
-                error: "",
-                paper: nextPaper
-              })
-            );
+            primePdfFallbackPaper(activeRouteTab.key, nextPaper);
+            return;
           }
 
           setReader({
@@ -654,6 +743,61 @@ export default function App() {
     });
 
     setLibrary({ loading: false, papers });
+  }
+
+  async function hydratePendingPdfPapers() {
+    if (pdfHydrationRunningRef.current) {
+      return;
+    }
+
+    pdfHydrationRunningRef.current = true;
+    let hydratedCount = 0;
+
+    try {
+      const papers = await listPapers();
+      const pendingPdfs = papers.filter(
+        (record) =>
+          record.contentType === "pdf" &&
+          record.pdfUrl &&
+          (record.pdfFetchStatus === "pending" || record.pdfFetchStatus === "error")
+      );
+
+      for (const paperRecord of pendingPdfs) {
+        try {
+          const { blob } = await fetchBlobWithFallback(paperRecord.pdfUrl);
+          const pdfFingerprint = await hashBlob(blob);
+          await putAssetRecord({
+            key: `${paperRecord.id}::${paperRecord.pdfUrl}`,
+            paperId: paperRecord.id,
+            assetUrl: paperRecord.pdfUrl,
+            contentType: blob.type || "application/pdf",
+            blob
+          });
+          await putPaperRecord({
+            ...paperRecord,
+            pdfFingerprint,
+            pdfByteLength: Number(blob.size || 0),
+            pdfFetchStatus: "ready"
+          });
+          hydratedCount += 1;
+        } catch (error) {
+          console.warn("Deferred PDF hydration failed", paperRecord.id, error);
+          await putPaperRecord({
+            ...paperRecord,
+            pdfFetchStatus: "error"
+          });
+        }
+      }
+    } finally {
+      pdfHydrationRunningRef.current = false;
+    }
+
+    if (hydratedCount > 0) {
+      await refreshLibrary();
+      if (parseRoute().kind === "saved-paper") {
+        setRouteVersion((value) => value + 1);
+      }
+    }
   }
 
   async function persistBackupState(value) {
@@ -837,10 +981,320 @@ export default function App() {
   }
 
   function updateOpenTabs(updater) {
+    const currentTabs = openTabsRef.current;
     const nextTabs =
-      typeof updater === "function" ? updater(openTabsRef.current) : updater;
+      typeof updater === "function" ? updater(currentTabs) : updater;
+    for (const blobUrl of getSupersededPdfBlobUrls(currentTabs, nextTabs)) {
+      revokeObjectUrl(blobUrl);
+    }
+    for (const tabKey of [...pdfFallbackPrimeRequestIdsRef.current.keys()]) {
+      const nextTab = nextTabs.find((tab) => tab.key === tabKey);
+      if (!isPdfFallbackPaper(nextTab?.paper)) {
+        pdfFallbackPrimeRequestIdsRef.current.delete(tabKey);
+      }
+    }
     openTabsRef.current = nextTabs;
     setOpenTabs(nextTabs);
+  }
+
+  function updateReaderTab(tabKey, buildNextTab) {
+    let nextReaderState = null;
+
+    updateOpenTabs((currentTabs) => {
+      const currentTab = currentTabs.find((tab) => tab.key === tabKey) || null;
+      const nextTab = buildNextTab(currentTab);
+      if (!nextTab) {
+        return currentTabs;
+      }
+
+      const nextTabs = upsertReaderTab(currentTabs, nextTab);
+      if (getRouteTab(parseRoute())?.key === tabKey) {
+        const resolvedTab =
+          nextTabs.find((tab) => tab.key === tabKey) || nextTab;
+        nextReaderState = getReaderStateFromTab(resolvedTab);
+      }
+      return nextTabs;
+    });
+
+    if (nextReaderState) {
+      setReader(nextReaderState);
+    }
+  }
+
+  function patchPdfFallbackPaper(tabKey, updatePaper, { requestId = null } = {}) {
+    updateReaderTab(tabKey, (currentTab) => {
+      if (!isPdfFallbackPaper(currentTab?.paper)) {
+        return null;
+      }
+
+      if (
+        requestId !== null &&
+        pdfFallbackPrimeRequestIdsRef.current.get(tabKey) !== requestId
+      ) {
+        return null;
+      }
+
+      const nextPaper = updatePaper(currentTab.paper);
+      if (!nextPaper) {
+        return null;
+      }
+
+      return {
+        ...currentTab,
+        title: nextPaper.title || currentTab.title || currentTab.id,
+        status: "ready",
+        error: "",
+        paper: nextPaper
+      };
+    });
+  }
+
+  function syncPdfMathSnapshotToOpenTabs(snapshot) {
+    updateOpenTabs((currentTabs) =>
+      currentTabs.map((tab) => {
+        if (!isPdfFallbackPaper(tab?.paper)) {
+          return tab;
+        }
+
+        return {
+          ...tab,
+          paper: {
+            ...tab.paper,
+            pdfState: {
+              ...tab.paper.pdfState,
+              ...getPdfMathStateFromServiceSnapshot(snapshot)
+            }
+          }
+        };
+      })
+    );
+  }
+
+  function primePdfFallbackPaper(tabKey, paper) {
+    if (!tabKey || !isPdfFallbackPaper(paper)) {
+      return;
+    }
+
+    const requestId = pdfFallbackPrimeSequenceRef.current + 1;
+    pdfFallbackPrimeSequenceRef.current = requestId;
+    pdfFallbackPrimeRequestIdsRef.current.set(tabKey, requestId);
+
+    const primedPaper = createPrimedPdfFallbackPaper(paper, pdfMathService.status());
+
+    updateReaderTab(tabKey, (currentTab) => {
+      const routeTab = currentTab || getRouteTab(parseRoute());
+      return {
+        key: tabKey,
+        id: routeTab?.id || paper.id,
+        href: routeTab?.href || buildSavedPaperUrl(paper.id),
+        title: primedPaper.title || routeTab?.title || paper.id,
+        status: "ready",
+        error: "",
+        paper: primedPaper
+      };
+    });
+  }
+
+  async function ensurePdfMathReady(tabKey) {
+    if (!tabKey) {
+      return pdfMathService.status();
+    }
+
+    const currentTab = openTabsRef.current.find((tab) => tab.key === tabKey);
+    if (!isPdfFallbackPaper(currentTab?.paper)) {
+      return pdfMathService.status();
+    }
+
+    const existingAcquire = pdfMathAcquirePromisesRef.current.get(tabKey);
+    if (existingAcquire) {
+      return existingAcquire;
+    }
+
+    const acquirePromise = Promise.resolve(pdfMathService.ensureReady())
+      .then((snapshot) => {
+        syncPdfMathSnapshotToOpenTabs(snapshot);
+
+        return snapshot;
+      })
+      .catch(() => {
+        const fallbackSnapshot = {
+          phase: "error",
+          enabled: false,
+          reason: "worker_error",
+          benchmarkMs: null,
+          modelRevision: "breezedeus-pix2text-v1",
+          refCount: pdfMathService.status().refCount,
+          installed: pdfMathService.status().installed,
+          progress: null
+        };
+
+        syncPdfMathSnapshotToOpenTabs(fallbackSnapshot);
+
+        return fallbackSnapshot;
+      })
+      .finally(() => {
+        if (pdfMathAcquirePromisesRef.current.get(tabKey) === acquirePromise) {
+          pdfMathAcquirePromisesRef.current.delete(tabKey);
+        }
+      });
+
+    pdfMathAcquirePromisesRef.current.set(tabKey, acquirePromise);
+    syncPdfMathSnapshotToOpenTabs(pdfMathService.status());
+
+    return acquirePromise;
+  }
+
+  function handlePdfFirstPageRender(tabKey, documentUrl) {
+    if (!tabKey || !documentUrl) {
+      return;
+    }
+
+    patchPdfFallbackPaper(tabKey, (currentPaper) => {
+      if (currentPaper.pdfState.documentUrl !== documentUrl) {
+        return null;
+      }
+
+      return {
+        ...currentPaper,
+        pdfState: {
+          ...currentPaper.pdfState,
+          loadStatus: "ready"
+        }
+      };
+    });
+  }
+
+  function handlePdfRenderFailure(tabKey, documentUrl) {
+    if (!tabKey || !documentUrl) {
+      return;
+    }
+
+    const currentTab = openTabsRef.current.find((tab) => tab.key === tabKey);
+    if (!isPdfFallbackPaper(currentTab?.paper)) {
+      return;
+    }
+
+    if (currentTab.paper.pdfState.documentUrl !== documentUrl) {
+      return;
+    }
+
+    if (currentTab.paper.pdfState.sourceMode !== "remote-direct") {
+      patchPdfFallbackPaper(tabKey, (currentPaper) => {
+        if (currentPaper.pdfState.documentUrl !== documentUrl) {
+          return null;
+        }
+
+        return {
+          ...currentPaper,
+          pdfState: {
+            ...currentPaper.pdfState,
+            documentUrl: "",
+            sourceMode: "",
+            blob: null,
+            blobUrl: "",
+            loadStatus: "error"
+          }
+        };
+      });
+      return;
+    }
+
+    patchPdfFallbackPaper(tabKey, (currentPaper) => {
+      if (
+        currentPaper.pdfState.documentUrl !== documentUrl ||
+        currentPaper.pdfState.sourceMode !== "remote-direct"
+      ) {
+        return null;
+      }
+
+      return {
+        ...currentPaper,
+        pdfState: {
+          ...currentPaper.pdfState,
+          loadStatus: "loading"
+        }
+      };
+    });
+
+    void fetchBlobWithFallback(currentTab.paper.pdfUrl)
+      .then(({ blob, relay }) => {
+        const objectUrl = createObjectUrl(blob);
+        if (!objectUrl) {
+          throw new Error("Blob URL creation failed.");
+        }
+
+        let didApply = false;
+        patchPdfFallbackPaper(tabKey, (currentPaper) => {
+          if (
+            currentPaper.pdfState.documentUrl !== documentUrl ||
+            currentPaper.pdfState.sourceMode !== "remote-direct"
+          ) {
+            return null;
+          }
+
+          didApply = true;
+          return {
+            ...currentPaper,
+            pdfState: {
+              ...currentPaper.pdfState,
+              documentUrl: objectUrl,
+              sourceMode: "blob-fallback",
+              blob,
+              blobUrl: objectUrl,
+              relay,
+              pdfByteLength: Number(blob.size || 0),
+              loadStatus: "loading"
+            }
+          };
+        });
+
+        if (!didApply) {
+          revokeObjectUrl(objectUrl);
+          return;
+        }
+
+        void hashBlob(blob).then((pdfFingerprint) => {
+          patchPdfFallbackPaper(tabKey, (currentPaper) => {
+            if (
+              currentPaper.pdfState.documentUrl !== objectUrl ||
+              currentPaper.pdfState.sourceMode !== "blob-fallback"
+            ) {
+              return null;
+            }
+
+            return {
+              ...currentPaper,
+              pdfState: {
+                ...currentPaper.pdfState,
+                pdfFingerprint
+              }
+            };
+          });
+        });
+      })
+      .catch(() => {
+        patchPdfFallbackPaper(tabKey, (currentPaper) => {
+          if (
+            currentPaper.pdfState.documentUrl !== documentUrl ||
+            currentPaper.pdfState.sourceMode !== "remote-direct"
+          ) {
+            return null;
+          }
+
+          return {
+            ...currentPaper,
+            pdfState: {
+              ...currentPaper.pdfState,
+              documentUrl: "",
+              sourceMode: "",
+              blob: null,
+              blobUrl: "",
+              relay: "",
+              loadStatus: "error"
+            }
+          };
+        });
+      });
   }
 
   function updateResolvedPaperTitle(paperId, nextTitle, { replaceableTitles = [] } = {}) {
@@ -979,22 +1433,44 @@ export default function App() {
   }
 
   async function handleSave() {
-    if (!reader.paper || reader.paper.mode !== "session" || reader.paper.view !== "html") {
-      if (reader.paper?.view === "pdf") {
-        showToast("PDF fallback sessions cannot be saved offline yet.");
-      }
+    if (!reader.paper || reader.paper.mode !== "session") {
       return;
     }
 
     setSaving(true);
     try {
       await ensurePersistentStorage();
-      await savePaper(reader.paper, {
-        deviceId: deviceIdentityRef.current?.deviceId || "local"
-      });
+      let paperToSave = reader.paper;
+      if (reader.paper.view === "pdf") {
+        if (!(reader.paper.pdfState?.blob instanceof Blob)) {
+          const { blob, relay } = await fetchBlobWithFallback(reader.paper.pdfUrl);
+          const pdfFingerprint =
+            String(reader.paper.pdfState?.pdfFingerprint || "").trim() || (await hashBlob(blob));
+          paperToSave = {
+            ...reader.paper,
+            pdfState: {
+              ...reader.paper.pdfState,
+              blob,
+              relay,
+              pdfFingerprint,
+              pdfByteLength: Number(blob.size || 0)
+            }
+          };
+        }
+
+        await savePdfPaper(paperToSave, {
+          deviceId: deviceIdentityRef.current?.deviceId || "local"
+        });
+      } else if (reader.paper.view === "html") {
+        await savePaper(reader.paper, {
+          deviceId: deviceIdentityRef.current?.deviceId || "local"
+        });
+      } else {
+        return;
+      }
       await refreshLibrary();
       const savedPaper = {
-        ...reader.paper,
+        ...paperToSave,
         mode: "saved"
       };
       updateOpenTabs((currentTabs) =>
@@ -1802,6 +2278,19 @@ export default function App() {
           onExport={() => handleExportPaper(reader.paper.id)}
           onDelete={() => handleDeletePaper(reader.paper.id)}
           showToast={showToast}
+          onPdfFirstPageRender={(documentUrl) =>
+            handlePdfFirstPageRender(
+              activeTabKey,
+              documentUrl || reader.paper?.pdfState?.documentUrl || ""
+            )
+          }
+          onPdfRenderFailure={(_error, documentUrl) =>
+            handlePdfRenderFailure(
+              activeTabKey,
+              documentUrl || reader.paper?.pdfState?.documentUrl || ""
+            )
+          }
+          onPdfMathActivationRequest={() => ensurePdfMathReady(activeTabKey)}
         />
       ) : (
         <LibraryView
@@ -2102,6 +2591,13 @@ function stringifyError(error) {
   }
 
   return String(error);
+}
+
+async function hashBlob(blob) {
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function installMetasEqual(left, right) {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { installMathCopy } from "../lib/mathCopy";
+import PdfReaderSurface from "./PdfReaderSurface";
 
 export default function ReaderView({
   tabs,
@@ -15,7 +16,10 @@ export default function ReaderView({
   onSave,
   onExport,
   onDelete,
-  showToast
+  showToast,
+  onPdfFirstPageRender,
+  onPdfRenderFailure,
+  onPdfMathActivationRequest
 }) {
   const articleRef = useRef(null);
   const showToastRef = useRef(showToast);
@@ -268,7 +272,7 @@ export default function ReaderView({
           >
             <BackIcon />
           </button>
-          {paper?.mode === "session" && paper?.view === "html" ? (
+          {paper?.mode === "session" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
             </button>
@@ -298,7 +302,7 @@ export default function ReaderView({
                       Open PDF
                     </a>
                   ) : null}
-                  {paper?.mode === "saved" ? (
+                  {paper?.mode === "saved" && paper?.view === "html" ? (
                     <button
                       role="menuitem"
                       type="button"
@@ -352,11 +356,14 @@ export default function ReaderView({
 
       <section className={`reader-frame${paper?.view === "pdf" ? " reader-frame--pdf" : ""}`}>
         <div className={`reader-surface${paper?.view === "pdf" ? " reader-surface--pdf" : ""}`}>
-          {paper?.view === "pdf" && paper?.pdfUrl ? (
-            <iframe
-              className="pdf-viewer"
-              src={paper.pdfUrl}
-              title={paper.title || paper.id || "PDF fallback"}
+          {paper?.view === "pdf" ? (
+            <PdfReaderSurface
+              paper={paper}
+              onFirstPageRender={onPdfFirstPageRender}
+              onRenderFailure={onPdfRenderFailure}
+              onEnsureMathReady={onPdfMathActivationRequest}
+              onCopySuccess={showToast}
+              onCopyFailure={showToast}
             />
           ) : (
             <article
