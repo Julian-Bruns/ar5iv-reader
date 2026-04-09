@@ -13,7 +13,7 @@ import {
 } from "./urlManifest";
 
 const BACKUP_FORMAT = "ar5iv-reader-backup";
-const BACKUP_SCHEMA_VERSION = 2;
+const BACKUP_SCHEMA_VERSION = 3;
 const FOLDER_EXPORT_FORMAT = "ar5iv-reader-folder-export";
 const FOLDER_EXPORT_SCHEMA_VERSION = 1;
 
