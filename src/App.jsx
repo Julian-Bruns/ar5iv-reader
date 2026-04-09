@@ -15,11 +15,13 @@ import {
 import {
   buildBackupFilename,
   buildBackupFingerprint,
+  createFolderExportHandle,
   createLibraryBackup,
   downloadBlob,
-  exportLibraryBackup,
+  exportLibraryFolder,
   exportPaperHtml,
   importLibraryBackup,
+  isFolderExportSupported,
   inspectImportFile
 } from "./lib/exportImport";
 import { appVersion as APP_VERSION, buildId as BUILD_ID } from "./lib/appBuild";
@@ -1057,9 +1059,38 @@ export default function App() {
 
   async function handleExportLibrary() {
     try {
-      const blob = await exportLibraryBackup(APP_VERSION, BUILD_ID);
-      downloadBlob(blob, buildBackupFilename());
-      showToast("Downloaded backup.");
+      const { payload } = await createLibraryBackup(APP_VERSION, BUILD_ID);
+      const backupBlob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json;charset=utf-8"
+      });
+
+      downloadBlob(backupBlob, buildBackupFilename());
+
+      if (!isFolderExportSupported()) {
+        showToast("Downloaded backup. Folder export is not supported in this browser.");
+        return;
+      }
+
+      let exportDirectoryHandle;
+      try {
+        exportDirectoryHandle = await createFolderExportHandle();
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          showToast("Downloaded backup.");
+          return;
+        }
+        throw error;
+      }
+
+      const folderExport = await exportLibraryFolder(exportDirectoryHandle, {
+        backupPayload: payload,
+        openTabs: buildOpenTabFolderExport(openTabsRef.current),
+        appVersion: APP_VERSION,
+        buildId: BUILD_ID
+      });
+      showToast(
+        `Downloaded backup and wrote ${folderExport.folderName} with ${folderExport.savedPaperCount} saved papers and ${folderExport.openTabCount} open tabs.`
+      );
     } catch (error) {
       showToast(stringifyError(error));
     }
@@ -1939,6 +1970,37 @@ function getReaderStateFromTab(tab) {
     paper: tab.paper || null,
     error: tab.error || ""
   };
+}
+
+function buildOpenTabFolderExport(openTabs) {
+  return (Array.isArray(openTabs) ? openTabs : []).map((tab) => {
+    const paper = tab?.paper && typeof tab.paper === "object" ? tab.paper : null;
+
+    return {
+      key: String(tab?.key || "").trim(),
+      id: String(tab?.id || paper?.id || "").trim(),
+      href: String(tab?.href || "").trim(),
+      title: String(tab?.title || paper?.title || paper?.titleHint || tab?.id || "").trim(),
+      status: String(tab?.status || "").trim(),
+      error: String(tab?.error || "").trim(),
+      paper: paper
+        ? {
+            id: String(paper.id || "").trim(),
+            title: String(paper.title || "").trim(),
+            titleHint: String(paper.titleHint || "").trim(),
+            sourceUrl: String(paper.sourceUrl || "").trim(),
+            ar5ivUrl: String(paper.ar5ivUrl || "").trim(),
+            pdfUrl: String(paper.pdfUrl || "").trim(),
+            mode: String(paper.mode || "").trim(),
+            view: String(paper.view || "").trim(),
+            savedAt: String(paper.savedAt || "").trim(),
+            updatedAt: String(paper.updatedAt || "").trim(),
+            notice: String(paper.notice || "").trim(),
+            html: paper.view === "html" ? String(paper.html || "") : ""
+          }
+        : null
+    };
+  });
 }
 
 function clearPairQueryParam() {
