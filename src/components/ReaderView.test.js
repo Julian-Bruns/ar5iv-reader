@@ -30,4 +30,14 @@ describe("ReaderView Plan 4 integration", () => {
     expect(source).toMatch(/onPdfMathActivationRequest/);
     expect(source).toMatch(/onEnsureMathReady=\{onPdfMathActivationRequest\}/);
   });
+
+  it("surfaces a one-click BibTeX copy action in the reader toolbar", () => {
+    const source = fs.readFileSync(readerViewPath, "utf8");
+
+    expect(source).toMatch(/import \{ fetchPaperBibtex, primePaperBibtex \} from "\.\.\/lib\/citation";/);
+    expect(source).toMatch(/void primePaperBibtex\(paper\.id\);/);
+    expect(source).toMatch(/const bibtex = await fetchPaperBibtex\(paper\.id\);/);
+    expect(source).toMatch(/showToastRef\.current\("Copied BibTeX\."\);/);
+    expect(source).toMatch(/Copy BibTeX/);
+  });
 });

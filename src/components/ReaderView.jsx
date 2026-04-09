@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { fetchPaperBibtex, primePaperBibtex } from "../lib/citation";
 import { installMathCopy } from "../lib/mathCopy";
 import PdfReaderSurface from "./PdfReaderSurface";
 
@@ -25,6 +26,7 @@ export default function ReaderView({
   const showToastRef = useRef(showToast);
   const [dismissedNotice, setDismissedNotice] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
+  const [copyBibtexBusy, setCopyBibtexBusy] = useState(false);
   const [dragState, setDragState] = useState({ draggedKey: "", targetKey: "", placement: "before" });
 
   useEffect(() => {
@@ -57,7 +59,16 @@ export default function ReaderView({
   useEffect(() => {
     setDismissedNotice(false);
     setShowActionMenu(false);
+    setCopyBibtexBusy(false);
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
+
+  useEffect(() => {
+    if (!paper?.id) {
+      return;
+    }
+
+    void primePaperBibtex(paper.id);
+  }, [paper?.id]);
 
   useEffect(() => {
     if (!showActionMenu) {
@@ -141,6 +152,25 @@ export default function ReaderView({
 
     return () => window.cancelAnimationFrame(frame);
   }, [paper?.id, paper?.sanitizedHtml]);
+
+  async function handleCopyBibtex() {
+    if (!paper?.id || copyBibtexBusy) {
+      return;
+    }
+
+    setCopyBibtexBusy(true);
+
+    try {
+      const bibtex = await fetchPaperBibtex(paper.id);
+      await copyText(bibtex);
+      showToastRef.current("Copied BibTeX.");
+    } catch (error) {
+      console.error("BibTeX copy failed", error);
+      showToastRef.current("BibTeX copy failed.");
+    } finally {
+      setCopyBibtexBusy(false);
+    }
+  }
 
   return (
     <div className="reader-shell">
@@ -272,6 +302,18 @@ export default function ReaderView({
           >
             <BackIcon />
           </button>
+          {paper?.id ? (
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => void handleCopyBibtex()}
+              disabled={copyBibtexBusy}
+              aria-label="Copy BibTeX citation"
+              title="Copy BibTeX citation"
+            >
+              {copyBibtexBusy ? "Copying…" : "Copy BibTeX"}
+            </button>
+          ) : null}
           {paper?.mode === "session" ? (
             <button className="primary-button" type="button" onClick={onSave} disabled={busy}>
               {busy ? "Saving…" : "Save to Library"}
@@ -376,6 +418,23 @@ export default function ReaderView({
       </section>
     </div>
   );
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function resolveSamePaperHash(href, paperUrl) {
