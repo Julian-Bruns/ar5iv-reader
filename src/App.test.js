@@ -14,10 +14,10 @@ describe("App PDF fallback integration", () => {
     expect(source.match(/primePdfFallbackPaper\(activeRouteTab\.key, nextPaper\);/g)).toHaveLength(2);
   });
 
-  it("starts blob preloading without eagerly warming the PDF math runtime", () => {
+  it("starts session PDFs in direct-url mode without eagerly warming the PDF math runtime", () => {
     const source = fs.readFileSync(appPath, "utf8");
 
-    expect(source).toMatch(/void fetchBlobWithFallback\(paper\.pdfUrl\)/);
+    expect(source).not.toMatch(/function primePdfFallbackPaper\(tabKey, paper\) \{[\s\S]*void fetchBlobWithFallback\(paper\.pdfUrl\)/);
     expect(source).not.toMatch(/void pdfMathService\.prefetch\(\)/);
   });
 
@@ -32,23 +32,33 @@ describe("App PDF fallback integration", () => {
   it("wires ReaderView PDF render callbacks back into App-owned pdfState", () => {
     const source = fs.readFileSync(appPath, "utf8");
 
-    expect(source).toMatch(/function handlePdfFirstPageRender\(tabKey, blobUrl\)/);
-    expect(source).toMatch(/function handlePdfRenderFailure\(tabKey, blobUrl\)/);
-    expect(source).toMatch(/onPdfFirstPageRender=\{\(\) =>/);
-    expect(source).toMatch(/handlePdfFirstPageRender\(activeTabKey, reader\.paper\?\.pdfState\?\.blobUrl \|\| ""\)/);
-    expect(source).toMatch(/onPdfRenderFailure=\{\(\) =>/);
-    expect(source).toMatch(/handlePdfRenderFailure\(activeTabKey, reader\.paper\?\.pdfState\?\.blobUrl \|\| ""\)/);
+    expect(source).toMatch(/function handlePdfFirstPageRender\(tabKey, documentUrl\)/);
+    expect(source).toMatch(/function handlePdfRenderFailure\(tabKey, documentUrl\)/);
+    expect(source).toMatch(/onPdfFirstPageRender=\{\(documentUrl\) =>/);
+    expect(source).toMatch(/handlePdfFirstPageRender\([\s\S]*documentUrl \|\| reader\.paper\?\.pdfState\?\.documentUrl \|\| ""/);
+    expect(source).toMatch(/onPdfRenderFailure=\{\(_error, documentUrl\) =>/);
+    expect(source).toMatch(/handlePdfRenderFailure\([\s\S]*documentUrl \|\| reader\.paper\?\.pdfState\?\.documentUrl \|\| ""/);
   });
 
-  it("marks PDF render readiness in App and clears failed blob URLs through the normal tab lifecycle", () => {
+  it("marks PDF render readiness in App and retries remote-direct failures through blob fallback", () => {
     const source = fs.readFileSync(appPath, "utf8");
 
     expect(source).toMatch(
-      /function handlePdfFirstPageRender\(tabKey, blobUrl\) \{[\s\S]*currentPaper\.pdfState\.blobUrl !== blobUrl[\s\S]*loadStatus: "ready"/
+      /function handlePdfFirstPageRender\(tabKey, documentUrl\) \{[\s\S]*currentPaper\.pdfState\.documentUrl !== documentUrl[\s\S]*loadStatus: "ready"/
     );
     expect(source).toMatch(
-      /function handlePdfRenderFailure\(tabKey, blobUrl\) \{[\s\S]*currentPaper\.pdfState\.blobUrl !== blobUrl[\s\S]*blobUrl: ""[\s\S]*loadStatus: "error"/
+      /function handlePdfRenderFailure\(tabKey, documentUrl\) \{[\s\S]*currentTab\.paper\.pdfState\.sourceMode !== "remote-direct"[\s\S]*documentUrl: ""[\s\S]*sourceMode: ""[\s\S]*loadStatus: "error"/
     );
+    expect(source).toMatch(
+      /void fetchBlobWithFallback\(currentTab\.paper\.pdfUrl\)[\s\S]*documentUrl: objectUrl,[\s\S]*sourceMode: "blob-fallback"/
+    );
+  });
+
+  it("boots saved PDFs from blob-backed document URLs", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/documentUrl: blobUrl,/);
+    expect(source).toMatch(/sourceMode: "saved-blob",/);
   });
 
   it("revokes superseded and closed PDF blob URLs through the App-owned lifecycle", () => {
@@ -61,7 +71,7 @@ describe("App PDF fallback integration", () => {
       /for \(const tab of openTabsRef\.current\) {\s*revokeObjectUrl\(getPdfFallbackBlobUrl\(tab\)\);/s
     );
     expect(source).toMatch(
-      /if \(pdfFallbackPrimeRequestIdsRef\.current\.get\(tabKey\) !== requestId\) {\s*revokeObjectUrl\(objectUrl\);/s
+      /if \(!didApply\) {\s*revokeObjectUrl\(objectUrl\);/s
     );
   });
 });
