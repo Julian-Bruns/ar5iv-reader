@@ -820,6 +820,31 @@ textarea {
   color: #241714;
 }
 
+.note-card-ai {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.note-card-transcript {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.78);
+  line-height: 1.65;
+}
+
+.note-card-latex,
+.note-ai-preview-code {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  background: rgba(122, 31, 21, 0.06);
+  color: #522219;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .tools-stack {
   display: grid;
   gap: 1rem;
@@ -1061,6 +1086,29 @@ textarea {
 .note-modal-content {
   display: grid;
   gap: 1rem;
+}
+
+.note-ai-toolbar,
+.note-ai-preview {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.note-ai-status {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.78);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.note-ai-status--error {
+  color: #9e2f1f;
+}
+
+.note-ai-preview-text {
+  margin: 0;
+  color: rgba(44, 33, 29, 0.82);
+  line-height: 1.65;
 }
 
 .note-modal-theorem {

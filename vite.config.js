@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, projectRoot, "");
   const externalOrtWasmUrl = normalizeExternalAssetUrl(env.VITE_PDF_MATH_ORT_WASM_URL)
     || defaultPdfMathOrtWasmUrl;
+  const noteAiModelRootUrl = normalizeModelRootUrl(env.VITE_NOTE_AI_MODEL_ROOT_URL);
 
   return {
     plugins: [
@@ -38,7 +39,8 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
       __APP_BUILD_ID__: JSON.stringify(buildId),
-      __PDF_MATH_ORT_WASM_URL__: JSON.stringify(externalOrtWasmUrl)
+      __PDF_MATH_ORT_WASM_URL__: JSON.stringify(externalOrtWasmUrl),
+      __NOTE_AI_MODEL_ROOT_URL__: JSON.stringify(noteAiModelRootUrl)
     },
     server: {
       port: 5173
@@ -154,4 +156,17 @@ function normalizeExternalAssetUrl(value) {
   } catch {
     return "";
   }
+}
+
+function normalizeModelRootUrl(value) {
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return "";
+  }
+
+  if (normalizedValue.startsWith("/")) {
+    return normalizedValue.replace(/\/+$/g, "");
+  }
+
+  return normalizeExternalAssetUrl(normalizedValue).replace(/\/+$/g, "");
 }

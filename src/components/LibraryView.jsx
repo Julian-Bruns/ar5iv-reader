@@ -86,7 +86,9 @@ export default function LibraryView({
           note.theoremTitle,
           note.theoremText,
           note.noteText,
-          note.referenceLabel
+          note.referenceLabel,
+          note.speechTranscript,
+          note.mathLatex
         ]
           .join(" ")
           .toLowerCase();
@@ -324,6 +326,20 @@ export default function LibraryView({
 
                 <p className="note-card-theorem">{note.theoremText}</p>
                 <p className="note-card-body">{note.noteText}</p>
+                {note.speechTranscript && note.speechTranscript !== note.noteText ? (
+                  <div className="note-card-ai">
+                    <p className="sync-label">Transcript</p>
+                    <p className="note-card-transcript">{note.speechTranscript}</p>
+                  </div>
+                ) : null}
+                {note.mathLatex ? (
+                  <div className="note-card-ai">
+                    <p className="sync-label">LaTeX</p>
+                    <pre className="note-card-latex">
+                      <code>{note.mathLatex}</code>
+                    </pre>
+                  </div>
+                ) : null}
                 <p className="paper-meta">
                   Saved {new Date(note.updatedAt || note.createdAt).toLocaleString()}
                 </p>

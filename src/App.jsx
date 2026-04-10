@@ -1694,8 +1694,8 @@ export default function App() {
     }
   }
 
-  async function handleCreateTheoremNote(payload, noteText) {
-    const noteRecord = createTheoremNoteRecord(payload, noteText);
+  async function handleCreateTheoremNote(payload, noteText, metadata = {}) {
+    const noteRecord = createTheoremNoteRecord(payload, noteText, metadata);
     if (!noteRecord) {
       return false;
     }

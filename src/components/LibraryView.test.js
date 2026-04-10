@@ -15,6 +15,7 @@ describe("LibraryView theorem notes integration", () => {
     expect(source).toMatch(/Your saved theorem notes live here\./);
     expect(source).toMatch(/note-card-theorem/);
     expect(source).toMatch(/note-card-body/);
+    expect(source).toMatch(/note-card-latex/);
     expect(source).toMatch(/Open paper/);
   });
 });

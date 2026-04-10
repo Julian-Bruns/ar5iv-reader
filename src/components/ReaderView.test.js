@@ -52,5 +52,7 @@ describe("ReaderView Plan 4 integration", () => {
     expect(source).toMatch(/Copy without proof/);
     expect(source).toMatch(/Create note/);
     expect(source).toMatch(/onCreateTheoremNote/);
+    expect(source).toMatch(/Dictate with Whisper/);
+    expect(source).toMatch(/Interpreting spoken math/);
   });
 });

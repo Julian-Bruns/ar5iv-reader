@@ -2,6 +2,18 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { fetchPaperBibtex, primePaperBibtex } from "../lib/citation";
 import { installMathCopy } from "../lib/mathCopy";
 import {
+  createEmptyNoteAiState,
+  NOTE_MATH_MODEL,
+  NOTE_SPEECH_MODEL
+} from "../lib/noteAiCommon";
+import {
+  getNoteAiCapabilities,
+  interpretNoteMath,
+  prefetchNoteAiRuntime,
+  transcribeNoteSpeech
+} from "../lib/noteAiService";
+import { startNoteSpeechRecorder } from "../lib/noteSpeechRecorder";
+import {
   buildTheoremCopyText,
   buildTheoremPayload,
   findTheoremFromTarget
@@ -30,12 +42,15 @@ export default function ReaderView({
 }) {
   const articleRef = useRef(null);
   const showToastRef = useRef(showToast);
+  const noteRecorderRef = useRef(null);
+  const noteAiJobRef = useRef(0);
   const [dismissedNotice, setDismissedNotice] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [copyBibtexBusy, setCopyBibtexBusy] = useState(false);
   const [theoremMenu, setTheoremMenu] = useState(null);
   const [noteComposer, setNoteComposer] = useState(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [noteAiState, setNoteAiState] = useState(() => createInitialNoteAiState());
   const [dragState, setDragState] = useState({ draggedKey: "", targetKey: "", placement: "before" });
 
   useEffect(() => {
@@ -104,6 +119,10 @@ export default function ReaderView({
     setTheoremMenu(null);
     setNoteComposer(null);
     setNoteDraft("");
+    noteRecorderRef.current?.cancel?.();
+    noteRecorderRef.current = null;
+    noteAiJobRef.current += 1;
+    setNoteAiState(createInitialNoteAiState());
   }, [paper?.id, paper?.notice, fallbackNoticeEnabled]);
 
   useEffect(() => {
@@ -174,6 +193,22 @@ export default function ReaderView({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [theoremMenu, noteComposer]);
+
+  useEffect(() => {
+    if (!noteComposer) {
+      return undefined;
+    }
+
+    setNoteAiState(createInitialNoteAiState());
+
+    const cancelIdle = scheduleIdleTask(() => {
+      void prefetchNoteAiRuntime().catch(() => {});
+    });
+
+    return () => {
+      cancelIdle();
+    };
+  }, [noteComposer]);
 
   useEffect(() => {
     if (!tabs?.length) {
@@ -273,18 +308,166 @@ export default function ReaderView({
   }
 
   async function handleSaveTheoremNote() {
-    if (!noteComposer?.payload || !noteDraft.trim()) {
+    if (
+      !noteComposer?.payload ||
+      !noteDraft.trim() ||
+      noteAiState.transcribing ||
+      noteAiState.interpreting
+    ) {
       return;
     }
 
-    const didSave = await onCreateTheoremNote?.(noteComposer.payload, noteDraft);
+    const didSave = await onCreateTheoremNote?.(noteComposer.payload, noteDraft, {
+      speechTranscript: noteAiState.transcript,
+      mathLatex: noteAiState.mathLatex,
+      speechModel: noteAiState.transcript ? NOTE_SPEECH_MODEL.id : "",
+      mathModel: noteAiState.mathLatex ? NOTE_MATH_MODEL.id : "",
+      aiGeneratedAt:
+        noteAiState.transcript || noteAiState.mathLatex ? new Date().toISOString() : ""
+    });
     if (!didSave) {
       return;
     }
 
+    resetNoteComposer();
+    showToastRef.current("Note saved.");
+  }
+
+  async function handleStartNoteDictation() {
+    if (!noteAiState.supported || noteAiState.recording) {
+      return;
+    }
+
+    try {
+      noteRecorderRef.current = await startNoteSpeechRecorder();
+      setNoteAiState((current) => ({
+        ...current,
+        recording: true,
+        transcribing: false,
+        interpreting: false,
+        progressLabel: "Listening…",
+        progressLoadedBytes: 0,
+        progressTotalBytes: 0,
+        transcript: "",
+        mathLatex: "",
+        error: ""
+      }));
+    } catch (error) {
+      console.error("Note dictation could not start", error);
+      setNoteAiState((current) => ({
+        ...current,
+        recording: false,
+        progressLabel: "",
+        error: stringifyNoteAiError(error, "Microphone access failed.")
+      }));
+      showToastRef.current("Microphone access failed.");
+    }
+  }
+
+  async function handleStopNoteDictation() {
+    const recorder = noteRecorderRef.current;
+    if (!recorder) {
+      return;
+    }
+
+    noteRecorderRef.current = null;
+    const jobId = noteAiJobRef.current + 1;
+    noteAiJobRef.current = jobId;
+    setNoteAiState((current) => ({
+      ...current,
+      recording: false,
+      transcribing: true,
+      interpreting: false,
+      progressLabel: "Transcribing speech…",
+      progressLoadedBytes: 0,
+      progressTotalBytes: NOTE_SPEECH_MODEL.totalBytes,
+      transcript: "",
+      mathLatex: "",
+      error: ""
+    }));
+
+    try {
+      const recording = await recorder.stop();
+      const transcription = await transcribeNoteSpeech(recording, {
+        onProgress(progress) {
+          updateNoteAiProgress(jobId, setNoteAiState, progress);
+        }
+      });
+      if (noteAiJobRef.current !== jobId) {
+        return;
+      }
+
+      const transcript = String(transcription?.text || "").trim();
+      if (transcript) {
+        setNoteDraft((current) =>
+          current.trim() ? `${current.trim()}\n\n${transcript}` : transcript
+        );
+      }
+      setNoteAiState((current) => ({
+        ...current,
+        transcribing: false,
+        interpreting: Boolean(transcript) && current.mathCapable,
+        progressLabel: transcript
+          ? current.mathCapable
+            ? "Interpreting spoken math…"
+            : "Speech transcription ready."
+          : "",
+        progressLoadedBytes: 0,
+        progressTotalBytes: current.mathCapable ? NOTE_MATH_MODEL.totalBytes : 0,
+        transcript,
+        mathLatex: "",
+        error: transcript ? "" : "No speech was detected."
+      }));
+
+      if (!transcript || !noteAiState.mathCapable) {
+        return;
+      }
+
+      const interpretation = await interpretNoteMath(transcript, {
+        onProgress(progress) {
+          updateNoteAiProgress(jobId, setNoteAiState, progress);
+        }
+      });
+      if (noteAiJobRef.current !== jobId) {
+        return;
+      }
+
+      setNoteAiState((current) => ({
+        ...current,
+        interpreting: false,
+        progressLabel: interpretation?.mathLatex ? "LaTeX ready." : "No spoken math detected.",
+        progressLoadedBytes: interpretation?.mathLatex ? NOTE_MATH_MODEL.totalBytes : 0,
+        progressTotalBytes: interpretation?.mathLatex ? NOTE_MATH_MODEL.totalBytes : 0,
+        mathLatex: String(interpretation?.mathLatex || "").trim(),
+        error: ""
+      }));
+    } catch (error) {
+      if (noteAiJobRef.current !== jobId) {
+        return;
+      }
+
+      console.error("Note dictation failed", error);
+      setNoteAiState((current) => ({
+        ...current,
+        recording: false,
+        transcribing: false,
+        interpreting: false,
+        progressLabel: "",
+        progressLoadedBytes: 0,
+        progressTotalBytes: 0,
+        error: stringifyNoteAiError(error, "Speech transcription failed.")
+      }));
+      showToastRef.current("Speech transcription failed.");
+    }
+  }
+
+  function resetNoteComposer() {
+    noteRecorderRef.current?.cancel?.();
+    noteRecorderRef.current = null;
+    noteAiJobRef.current += 1;
     setNoteComposer(null);
     setNoteDraft("");
-    showToastRef.current("Note saved.");
+    setNoteAiState(createInitialNoteAiState());
   }
 
   return (
@@ -553,6 +736,7 @@ export default function ReaderView({
               onClick={() => {
                 setNoteComposer({ payload: theoremMenu.payload });
                 setNoteDraft("");
+                setNoteAiState(createInitialNoteAiState());
                 setTheoremMenu(null);
               }}
             >
@@ -574,10 +758,7 @@ export default function ReaderView({
                 className="icon-button icon-button--close"
                 type="button"
                 aria-label="Close note composer"
-                onClick={() => {
-                  setNoteComposer(null);
-                  setNoteDraft("");
-                }}
+                onClick={resetNoteComposer}
               >
                 ×
               </button>
@@ -585,30 +766,71 @@ export default function ReaderView({
 
             <div className="note-modal-content">
               <p className="note-modal-theorem">{noteComposer.payload.theoremTextWithoutProof}</p>
+              <div className="note-ai-toolbar">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!noteAiState.supported || noteAiState.transcribing || noteAiState.interpreting}
+                  onClick={() =>
+                    void (noteAiState.recording ? handleStopNoteDictation() : handleStartNoteDictation())
+                  }
+                >
+                  {noteAiState.recording ? "Stop Dictation" : "Dictate with Whisper"}
+                </button>
+                {!noteAiState.supported ? (
+                  <p className="note-ai-status">
+                    Dictation needs HTTPS, microphone access, and worker support.
+                  </p>
+                ) : null}
+                {noteAiState.supported && !noteAiState.mathCapable ? (
+                  <p className="note-ai-status">
+                    Speech transcription works here, but LaTeX interpretation needs WebGPU.
+                  </p>
+                ) : null}
+                {noteAiState.progressLabel ? (
+                  <p className="note-ai-status">{noteAiState.progressLabel}</p>
+                ) : null}
+                {noteAiState.error ? (
+                  <p className="note-ai-status note-ai-status--error">{noteAiState.error}</p>
+                ) : null}
+              </div>
               <textarea
                 className="note-modal-input"
                 value={noteDraft}
                 placeholder="Write your note here"
                 onInput={(event) => setNoteDraft(event.currentTarget.value)}
               />
+              {noteAiState.transcript ? (
+                <div className="note-ai-preview">
+                  <p className="sync-label">Transcript</p>
+                  <p className="note-ai-preview-text">{noteAiState.transcript}</p>
+                </div>
+              ) : null}
+              {noteAiState.mathLatex ? (
+                <div className="note-ai-preview">
+                  <p className="sync-label">LaTeX</p>
+                  <pre className="note-ai-preview-code">
+                    <code>{noteAiState.mathLatex}</code>
+                  </pre>
+                </div>
+              ) : null}
               <div className="note-modal-actions">
                 <button
                   className="ghost-button"
                   type="button"
-                  onClick={() => {
-                    setNoteComposer(null);
-                    setNoteDraft("");
-                  }}
+                  onClick={resetNoteComposer}
                 >
                   Cancel
                 </button>
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={!noteDraft.trim()}
+                  disabled={
+                    !noteDraft.trim() || noteAiState.transcribing || noteAiState.interpreting
+                  }
                   onClick={() => void handleSaveTheoremNote()}
                 >
-                  Save
+                  {noteAiState.transcribing || noteAiState.interpreting ? "Working…" : "Save"}
                 </button>
               </div>
             </div>
@@ -617,6 +839,45 @@ export default function ReaderView({
       ) : null}
     </div>
   );
+}
+
+function createInitialNoteAiState() {
+  const capabilities = getNoteAiCapabilities();
+  return {
+    ...createEmptyNoteAiState(),
+    supported: capabilities.supported,
+    mathCapable: capabilities.mathCapable,
+    error: capabilities.supported ? "" : "Dictation is unavailable on this device."
+  };
+}
+
+function updateNoteAiProgress(jobId, setNoteAiState, progress) {
+  setNoteAiState((current) =>
+    current.recording || current.transcribing || current.interpreting
+      ? {
+          ...current,
+          progressLabel: String(progress?.label || current.progressLabel || "").trim(),
+          progressLoadedBytes: Number(progress?.loadedBytes || current.progressLoadedBytes || 0),
+          progressTotalBytes: Number(progress?.totalBytes || current.progressTotalBytes || 0)
+        }
+      : current
+  );
+  return jobId;
+}
+
+function stringifyNoteAiError(error, fallbackMessage) {
+  const message = String(error?.message || "").trim();
+  return message || fallbackMessage;
+}
+
+function scheduleIdleTask(callback) {
+  if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(callback);
+    return () => window.cancelIdleCallback(handle);
+  }
+
+  const handle = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(handle);
 }
 
 async function copyText(text) {

@@ -10,6 +10,7 @@ ar5iv Reader is a PWA for reading arXiv papers in a cleaner mobile-friendly inte
 - Open papers by pasting an arXiv or ar5iv link into the app.
 - Open papers from the web with a bookmarklet.
 - Copy TeX from rendered math with a simple click.
+- Dictate theorem notes with on-device Whisper transcription and browser-side LaTeX interpretation.
 - Save papers to your local library for later reading.
 - Sync your saved papers and library state to other paired devices on the same network.
 
@@ -39,6 +40,12 @@ Rendered math is interactive. Click an equation to copy its underlying TeX witho
 
 You can save papers into your library for later reading. This keeps the papers you care about in one place and makes the reader useful as a lightweight personal archive rather than just a transient viewer.
 
+## Dictate Notes
+
+Inside the theorem note composer there is a `Dictate with Whisper` button. It records from the microphone, transcribes locally with a q4 Whisper Base model through `transformers.js`, and then runs a background WebLLM pass to turn spoken math into LaTeX. The transcript and LaTeX are both stored with the note and shown in the central notes directory.
+
+The models are loaded lazily and do not participate in the initial PWA startup path.
+
 ## Sync Across Devices
 
 You can pair devices and sync your library between them on the same network, so saved papers are available on more than one machine. The intended workflow is simple: save on one device, pick up reading on another.
@@ -56,6 +63,24 @@ For a production build:
 bun run build
 bun run preview
 ```
+
+## Hosting Note AI Models In R2
+
+The dictation feature expects the note AI assets under a public root such as `/models/note-ai` or a public R2 URL wired through `VITE_NOTE_AI_MODEL_ROOT_URL`.
+
+Upload the required model files with:
+
+```bash
+bun run cf:r2:upload:note-ai-models <bucket-name> [prefix]
+```
+
+By default the script uploads to `models/note-ai`. The selected asset set mirrors:
+
+- Whisper Base q4 ONNX files needed for `transformers.js`
+- `mlc-ai/DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC`
+- the compatible WebLLM Qwen2 1.5B WebGPU wasm library
+
+That remote footprint is about 1.18 GiB for the model weights plus the WebLLM wasm, which stays well below a 10 GiB ceiling.
 
 ## Contributing
 

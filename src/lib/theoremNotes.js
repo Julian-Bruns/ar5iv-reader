@@ -60,7 +60,7 @@ export function buildTheoremCopyText(payload, { includeProof = false } = {}) {
   return segments.filter(Boolean).join("\n\n").trim();
 }
 
-export function createTheoremNoteRecord(payload, noteText) {
+export function createTheoremNoteRecord(payload, noteText, metadata = {}) {
   const normalizedNote = String(noteText || "").trim();
   if (!payload || !normalizedNote) {
     return null;
@@ -79,6 +79,11 @@ export function createTheoremNoteRecord(payload, noteText) {
     referenceLabel: payload.referenceLabel,
     referenceUrl: payload.referenceUrl,
     noteText: normalizedNote,
+    speechTranscript: String(metadata?.speechTranscript || "").trim(),
+    mathLatex: String(metadata?.mathLatex || "").trim(),
+    speechModel: String(metadata?.speechModel || "").trim(),
+    mathModel: String(metadata?.mathModel || "").trim(),
+    aiGeneratedAt: normalizeTimestamp(metadata?.aiGeneratedAt || timestamp),
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -107,6 +112,11 @@ export function normalizeTheoremNotes(value) {
         referenceLabel: String(entry?.referenceLabel || "").trim(),
         referenceUrl: String(entry?.referenceUrl || "").trim(),
         noteText,
+        speechTranscript: String(entry?.speechTranscript || "").trim(),
+        mathLatex: String(entry?.mathLatex || "").trim(),
+        speechModel: String(entry?.speechModel || "").trim(),
+        mathModel: String(entry?.mathModel || "").trim(),
+        aiGeneratedAt: normalizeTimestamp(entry?.aiGeneratedAt || updatedAt),
         createdAt,
         updatedAt
       };
