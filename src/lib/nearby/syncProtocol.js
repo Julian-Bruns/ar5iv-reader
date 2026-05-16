@@ -1,6 +1,9 @@
 import {
+  exportLatexProjectTransferPayload,
   exportPaperTransferPayload,
+  getLatexProjectManifestEntries,
   getPaperManifestEntries,
+  importLatexProjectTransferPayload,
   importPaperTransferPayload
 } from "../db";
 import { comparePaperVersions } from "./merge";
@@ -100,13 +103,16 @@ export async function runPairSession(session, { localDevice, onPaired }) {
 }
 
 export async function runLibrarySyncSession(session, { pairRecord }) {
-  const localManifest = await getPaperManifestEntries();
-  const requestedFromRemote = new Set();
+  const localPaperManifest = await getPaperManifestEntries();
+  const localLatexProjectManifest = await getLatexProjectManifestEntries();
+  const requestedPapersFromRemote = new Set();
+  const requestedLatexProjectsFromRemote = new Set();
   const pendingPushAcks = new Set();
   const incomingTransfers = new Map();
   let authSent = false;
   let authVerified = false;
-  let remoteManifest = null;
+  let remotePaperManifest = null;
+  let remoteLatexProjectManifest = null;
   let manifestSent = false;
   let syncCompleteSent = false;
   let remoteSyncComplete = false;
@@ -148,19 +154,24 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
       manifestSent = true;
       session.sendJson({
         type: "manifest",
-        papers: localManifest
+        papers: localPaperManifest,
+        latexProjects: localLatexProjectManifest
       });
       maybeComplete();
     };
 
-    const maybeRequestPapers = () => {
-      if (!authVerified || !remoteManifest) {
+    const maybeRequestRemoteRecords = () => {
+      if (!authVerified || !remotePaperManifest || !remoteLatexProjectManifest) {
         return;
       }
 
-      const papersToRequest = remoteManifest.filter((remotePaper) => {
-        const localPaper = localManifest.find((entry) => entry.id === remotePaper.id);
+      const papersToRequest = remotePaperManifest.filter((remotePaper) => {
+        const localPaper = localPaperManifest.find((entry) => entry.id === remotePaper.id);
         return !localPaper || comparePaperVersions(remotePaper, localPaper) > 0;
+      });
+      const latexProjectsToRequest = remoteLatexProjectManifest.filter((remoteProject) => {
+        const localProject = localLatexProjectManifest.find((entry) => entry.id === remoteProject.id);
+        return !localProject || comparePaperVersions(remoteProject, localProject) > 0;
       });
       const totalPdfBytes = papersToRequest.reduce(
         (sum, paper) =>
@@ -170,11 +181,11 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
       const includePdfAssets = totalPdfBytes <= PDF_INLINE_SYNC_LIMIT_BYTES;
 
       for (const remotePaper of papersToRequest) {
-        if (requestedFromRemote.has(remotePaper.id)) {
+        if (requestedPapersFromRemote.has(remotePaper.id)) {
           continue;
         }
 
-        requestedFromRemote.add(remotePaper.id);
+        requestedPapersFromRemote.add(remotePaper.id);
         session.sendJson({
           type: "request-paper",
           paperId: remotePaper.id,
@@ -182,15 +193,32 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
         });
       }
 
+      for (const remoteProject of latexProjectsToRequest) {
+        if (requestedLatexProjectsFromRemote.has(remoteProject.id)) {
+          continue;
+        }
+
+        requestedLatexProjectsFromRemote.add(remoteProject.id);
+        session.sendJson({
+          type: "request-latex-project",
+          projectId: remoteProject.id
+        });
+      }
+
       maybeComplete();
     };
 
     const maybeComplete = () => {
-      if (!authVerified || !manifestSent || !remoteManifest) {
+      if (!authVerified || !manifestSent || !remotePaperManifest || !remoteLatexProjectManifest) {
         return;
       }
 
-      if (!syncCompleteSent && requestedFromRemote.size === 0 && pendingPushAcks.size === 0) {
+      if (
+        !syncCompleteSent &&
+        requestedPapersFromRemote.size === 0 &&
+        requestedLatexProjectsFromRemote.size === 0 &&
+        pendingPushAcks.size === 0
+      ) {
         syncCompleteSent = true;
         session.sendJson({
           type: "sync-complete",
@@ -257,8 +285,9 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
       }
 
       if (message.type === "manifest") {
-        remoteManifest = Array.isArray(message.papers) ? message.papers : [];
-        maybeRequestPapers();
+        remotePaperManifest = Array.isArray(message.papers) ? message.papers : [];
+        remoteLatexProjectManifest = Array.isArray(message.latexProjects) ? message.latexProjects : [];
+        maybeRequestRemoteRecords();
         return;
       }
 
@@ -300,16 +329,48 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
         return;
       }
 
-      if (message.type === "paper-transfer-start") {
+      if (message.type === "request-latex-project") {
+        const transfer = await exportLatexProjectTransferPayload(message.projectId);
+        const serialized = JSON.stringify(transfer);
+        const chunks = splitIntoChunks(serialized, CHUNK_SIZE);
+        const transferId = crypto.randomUUID();
+
+        pendingPushAcks.add(transferId);
+        session.sendJson({
+          type: "latex-project-transfer-start",
+          transferId,
+          projectId: message.projectId,
+          totalChunks: chunks.length
+        });
+
+        for (let index = 0; index < chunks.length; index += 1) {
+          session.sendJson({
+            type: "latex-project-transfer-chunk",
+            transferId,
+            index,
+            data: chunks[index]
+          });
+        }
+
+        session.sendJson({
+          type: "latex-project-transfer-complete",
+          transferId
+        });
+        return;
+      }
+
+      if (message.type === "paper-transfer-start" || message.type === "latex-project-transfer-start") {
         incomingTransfers.set(message.transferId, {
+          kind: message.type === "latex-project-transfer-start" ? "latex-project" : "paper",
           paperId: message.paperId,
+          projectId: message.projectId,
           totalChunks: Number(message.totalChunks || 0),
           chunks: []
         });
         return;
       }
 
-      if (message.type === "paper-transfer-chunk") {
+      if (message.type === "paper-transfer-chunk" || message.type === "latex-project-transfer-chunk") {
         const transfer = incomingTransfers.get(message.transferId);
         if (!transfer) {
           return;
@@ -319,7 +380,7 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
         return;
       }
 
-      if (message.type === "paper-transfer-complete") {
+      if (message.type === "paper-transfer-complete" || message.type === "latex-project-transfer-complete") {
         const transfer = incomingTransfers.get(message.transferId);
         if (!transfer) {
           return;
@@ -327,14 +388,25 @@ export async function runLibrarySyncSession(session, { pairRecord }) {
 
         incomingTransfers.delete(message.transferId);
         if (transfer.chunks.filter(Boolean).length !== transfer.totalChunks) {
-          requestedFromRemote.delete(transfer.paperId);
+          if (transfer.kind === "latex-project") {
+            requestedLatexProjectsFromRemote.delete(transfer.projectId);
+          } else {
+            requestedPapersFromRemote.delete(transfer.paperId);
+          }
           maybeComplete();
           return;
         }
 
         const payload = JSON.parse(transfer.chunks.join(""));
-        const changed = await importPaperTransferPayload(payload);
-        requestedFromRemote.delete(transfer.paperId);
+        const changed =
+          transfer.kind === "latex-project"
+            ? await importLatexProjectTransferPayload(payload)
+            : await importPaperTransferPayload(payload);
+        if (transfer.kind === "latex-project") {
+          requestedLatexProjectsFromRemote.delete(transfer.projectId);
+        } else {
+          requestedPapersFromRemote.delete(transfer.paperId);
+        }
         if (changed) {
           pulledCount += 1;
         }

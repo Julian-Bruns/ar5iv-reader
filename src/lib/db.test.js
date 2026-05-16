@@ -5,12 +5,12 @@ vi.mock("./assets", () => ({
   fetchAssetRecords: vi.fn(async () => [])
 }));
 
-describe("db v6 upgrade", () => {
+describe("db v7 upgrade", () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
-  it("preserves v4 paper data and adds local-only ML stores without changing snapshots", async () => {
+  it("preserves v4 paper data and adds local-only stores plus synced LaTeX projects", async () => {
     const fakeIdb = createIndexedDbMock();
     Object.defineProperty(globalThis, "indexedDB", {
       configurable: true,
@@ -153,11 +153,30 @@ describe("db v6 upgrade", () => {
         files: ["model.onnx"]
       })
     );
+    await expect(
+      db.saveLatexProject({
+        id: "tex-local",
+        title: "Draft proof",
+        source: "\\section{Draft}"
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "tex-local",
+        title: "Draft proof",
+        source: "\\section{Draft}"
+      })
+    );
+    await expect(db.listLatexProjects()).resolves.toEqual([
+      expect.objectContaining({
+        id: "tex-local",
+        title: "Draft proof"
+      })
+    ]);
 
     const snapshot = await db.exportLibrarySnapshot();
 
     expect(snapshot).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       exportedAt: expect.any(String),
       papers: [
         expect.objectContaining({
@@ -169,6 +188,13 @@ describe("db v6 upgrade", () => {
         expect.objectContaining({
           key: "2401.00001::https://cdn.example/figure.png",
           paperId: "2401.00001"
+        })
+      ],
+      latexProjects: [
+        expect.objectContaining({
+          id: "tex-local",
+          title: "Draft proof",
+          source: "\\section{Draft}"
         })
       ],
       settings: [

@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import LatexWorkspaceView from "./components/LatexWorkspaceView";
 import LibraryView from "./components/LibraryView";
 import ReaderView from "./components/ReaderView";
 import Toast from "./components/Toast";
 import {
+  deleteLatexProject,
   deletePaper,
   getAssetRecordsForPaper,
+  getLatexProject,
   getPaper,
   getSetting,
+  listLatexProjects,
   listPapers,
   putAssetRecord,
   putPaperRecord,
+  saveLatexProject,
   savePaper,
   savePdfPaper,
   setSetting,
@@ -25,8 +30,14 @@ import {
   exportPaperHtml,
   importLibraryBackup,
   isFolderExportSupported,
-  inspectImportFile
+  inspectImportContents
 } from "./lib/exportImport";
+import {
+  createLatexProjectDraft,
+  exportLatexProjectHtml,
+  exportLatexProjectPdfBuild,
+  exportLatexProjectSource
+} from "./lib/latexProjects";
 import { appVersion as APP_VERSION, buildId as BUILD_ID } from "./lib/appBuild";
 import {
   buildPdfFallbackPaper,
@@ -44,7 +55,11 @@ import {
   reconcilePdfMathServiceTabs
 } from "./lib/pdfFallbackLifecycle";
 import { rewriteHtmlAssetUrls } from "./lib/assets";
-import { extractArxivIdFromIncoming } from "./lib/arxiv";
+import {
+  buildArxivAbsUrl,
+  extractArxivIdFromIncoming,
+  normalizeArxivId
+} from "./lib/arxiv";
 import { resolveLaunchTarget } from "./lib/launchTarget";
 import { isReceiveIngressUrl, readReceivePayload } from "./lib/receiveIngress";
 import {
@@ -119,16 +134,24 @@ function normalizeNearbySignalUrl(value) {
 
 const NEARBY_SIGNAL_URL = normalizeNearbySignalUrl(import.meta.env.VITE_NEARBY_SIGNAL_URL);
 const AUTO_SYNC_INTERVAL_MS = 60_000;
+const OPEN_PAPER_SEARCH_HISTORY_LIMIT = 30;
 
 export default function App() {
   const [routeVersion, setRouteVersion] = useState(0);
   const [library, setLibrary] = useState({ loading: true, papers: [] });
+  const [latexProjects, setLatexProjects] = useState([]);
+  const [latexWorkspace, setLatexWorkspace] = useState({
+    status: "idle",
+    project: null,
+    error: ""
+  });
   const [reader, setReader] = useState({ status: "idle", paper: null, error: "" });
   const [openTabs, setOpenTabs] = useState([]);
   const [toast, setToast] = useState("");
   const [backupImporting, setBackupImporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [libraryInput, setLibraryInput] = useState("");
+  const [openPaperSearchHistory, setOpenPaperSearchHistory] = useState([]);
   const [fallbackNoticeEnabled, setFallbackNoticeEnabled] = useState(true);
   const [openFromArxivHelpDismissed, setOpenFromArxivHelpDismissed] = useState(false);
   const [backupState, setBackupState] = useState(createDefaultBackupState());
@@ -174,7 +197,7 @@ export default function App() {
   const route = parseRoute();
   const activeRouteTab = getRouteTab(route);
   const activeTabKey = activeRouteTab?.key || "";
-  const libraryFingerprint = buildBackupFingerprint(library.papers);
+  const libraryFingerprint = buildBackupFingerprint(library.papers, latexProjects);
   const pairedPeerIds = pairedDevices
     .map((record) => record.peerDeviceId)
     .filter(Boolean)
@@ -311,7 +334,7 @@ export default function App() {
       return;
     }
 
-    void mirrorBackupFile(library.papers);
+    void mirrorBackupFile(library.papers, { latexProjects });
   }, [backupState.enabled, library.loading, libraryFingerprint]);
 
   useEffect(() => {
@@ -372,7 +395,42 @@ export default function App() {
 
     if (route.kind === "library") {
       setReader({ status: "idle", paper: null, error: "" });
+      setLatexWorkspace({ status: "idle", project: null, error: "" });
       return undefined;
+    }
+
+    if (route.kind === "latex-project") {
+      setReader({ status: "idle", paper: null, error: "" });
+      setLatexWorkspace({ status: "loading", project: null, error: "" });
+
+      const loadProject = async () => {
+        try {
+          const project = await getLatexProject(route.latexProjectId);
+          if (!project) {
+            throw new Error("LaTeX project is not saved in this library.");
+          }
+          if (!cancelled) {
+            setLatexWorkspace({
+              status: "ready",
+              project,
+              error: ""
+            });
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setLatexWorkspace({
+              status: "error",
+              project: null,
+              error: stringifyError(error)
+            });
+          }
+        }
+      };
+
+      void loadProject();
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (activeRouteTab) {
@@ -515,8 +573,14 @@ export default function App() {
           );
         }
 
+        const incomingSourceUrl = route.payload.url || route.payload.text || "";
         const cachedTab = openTabsRef.current.find((tab) => tab.key === getPaperTabKey(id));
         if (cachedTab?.paper) {
+          rememberSearchedPaper({
+            id,
+            title: cachedTab.paper.title || cachedTab.title || id,
+            sourceUrl: incomingSourceUrl
+          });
           setReader(getReaderStateFromTab(cachedTab));
           return;
         }
@@ -533,11 +597,16 @@ export default function App() {
           updateResolvedPaperTitle(id, accessInfo.title, {
             replaceableTitles: [normalizedIncomingTitle, id]
           });
+          rememberSearchedPaper({
+            id,
+            title: accessInfo.title,
+            sourceUrl: incomingSourceUrl
+          });
         });
         const accessInfo = await accessInfoPromise;
 
         const sessionPaper = await fetchPaperById(id, {
-          sourceUrl: route.payload.url || route.payload.text || "",
+          sourceUrl: incomingSourceUrl,
           titleHint: accessInfo?.title || normalizedIncomingTitle,
           accessInfo
         });
@@ -553,6 +622,11 @@ export default function App() {
             title: normalizePaperTitle(sessionPaper.titleHint, sessionPaper.id) || sessionPaper.id,
             mode: "session"
           };
+          rememberSearchedPaper({
+            id: nextPaper.id,
+            title: nextPaper.title,
+            sourceUrl: nextPaper.sourceUrl
+          });
 
           if (activeRouteTab) {
             primePdfFallbackPaper(activeRouteTab.key, nextPaper);
@@ -577,7 +651,7 @@ export default function App() {
           });
         } catch (error) {
           const pdfFallback = buildPdfFallbackPaper(id, {
-            sourceUrl: route.payload.url || route.payload.text || "",
+            sourceUrl: incomingSourceUrl,
             titleHint: accessInfo?.title || normalizedIncomingTitle,
             reason: stringifyError(error)
           });
@@ -588,6 +662,11 @@ export default function App() {
             title: normalizePaperTitle(pdfFallback.titleHint, pdfFallback.id) || pdfFallback.id,
             mode: "session"
           };
+          rememberSearchedPaper({
+            id: nextPaper.id,
+            title: nextPaper.title,
+            sourceUrl: nextPaper.sourceUrl
+          });
 
           if (activeRouteTab) {
             primePdfFallbackPaper(activeRouteTab.key, nextPaper);
@@ -610,6 +689,11 @@ export default function App() {
           sanitizedHtml,
           mode: "session"
         };
+        rememberSearchedPaper({
+          id: nextPaper.id,
+          title: nextPaper.title,
+          sourceUrl: nextPaper.sourceUrl
+        });
 
         if (activeRouteTab) {
           updateOpenTabs((currentTabs) =>
@@ -741,13 +825,31 @@ export default function App() {
       : libraryInput;
 
   async function refreshLibrary() {
-    const papers = await listPapers().catch((error) => {
-      console.error("Library load failed", error);
-      setToast("Failed to load the local library.");
-      return [];
-    });
+    const [papers, projects] = await Promise.all([
+      listPapers().catch((error) => {
+        console.error("Library load failed", error);
+        setToast("Failed to load the local library.");
+        return [];
+      }),
+      listLatexProjects().catch((error) => {
+        console.error("LaTeX project load failed", error);
+        setToast("Failed to load LaTeX projects.");
+        return [];
+      })
+    ]);
 
     setLibrary({ loading: false, papers });
+    setLatexProjects(projects);
+  }
+
+  async function refreshLatexProjects() {
+    const projects = await listLatexProjects().catch((error) => {
+      console.error("LaTeX project load failed", error);
+      setToast("Failed to load LaTeX projects.");
+      return [];
+    });
+    setLatexProjects(projects);
+    return projects;
   }
 
   async function hydratePendingPdfPapers() {
@@ -851,7 +953,8 @@ export default function App() {
       lastWrittenAt: "",
       filename: "",
       lastMirroredFingerprint: "",
-      lastMirroredPaperIds: []
+      lastMirroredPaperIds: [],
+      lastMirroredLatexProjectIds: []
     });
   }
 
@@ -877,7 +980,7 @@ export default function App() {
     });
   }
 
-  async function mirrorBackupFile(papers, { showSuccessToast = false } = {}) {
+  async function mirrorBackupFile(papers, { latexProjects: projects = latexProjects, showSuccessToast = false } = {}) {
     const handle = backupFileHandleRef.current;
     if (!handle) {
       return false;
@@ -902,7 +1005,8 @@ export default function App() {
         lastWrittenAt: writeResult.lastWrittenAt,
         filename: writeResult.filename,
         lastMirroredFingerprint: fingerprint,
-        lastMirroredPaperIds: papers.map((paper) => paper.id)
+        lastMirroredPaperIds: papers.map((paper) => paper.id),
+        lastMirroredLatexProjectIds: projects.map((project) => project.id)
       });
       if (showSuccessToast) {
         showToast("This backup file will stay updated on this device.");
@@ -939,7 +1043,8 @@ export default function App() {
         storedRecoveryFileState,
         storedRecoveryFileHandle,
         storedInstallMeta,
-        storedRecoveryState
+        storedRecoveryState,
+        storedOpenPaperSearchHistory
       ] = await Promise.all([
         getSetting(SETTING_KEYS.openFromArxivHelpDismissed),
         getSetting(SETTING_KEYS.pdfFallbackNoticeEnabled),
@@ -950,7 +1055,8 @@ export default function App() {
         getSetting(SETTING_KEYS.recoveryFileState),
         getSetting(SETTING_KEYS.recoveryFileHandle),
         getSetting(SETTING_KEYS.installMeta),
-        getSetting(SETTING_KEYS.recoveryState)
+        getSetting(SETTING_KEYS.recoveryState),
+        getSetting(SETTING_KEYS.openPaperSearchHistory)
       ]);
 
       const locallyDismissed = readOpenFromArxivHelpDismissedFlag();
@@ -966,6 +1072,9 @@ export default function App() {
       setBackupState(nextBackupState);
       setInstallMeta(storedInstallMeta?.value || null);
       setRecoveryState(normalizeRecoveryState(storedRecoveryState?.value));
+      setOpenPaperSearchHistory(
+        normalizeOpenPaperSearchHistory(storedOpenPaperSearchHistory?.value)
+      );
       if (!storedBackupState && storedRecoveryFileState?.value) {
         await setSetting(SETTING_KEYS.backupState, nextBackupState);
       }
@@ -1363,6 +1472,24 @@ export default function App() {
     });
   }
 
+  function rememberSearchedPaper(record) {
+    const normalizedRecord = normalizeOpenPaperSearchRecord({
+      ...record,
+      searchedAt: new Date().toISOString()
+    });
+    if (!normalizedRecord) {
+      return;
+    }
+
+    setOpenPaperSearchHistory((currentHistory) => {
+      const nextHistory = upsertOpenPaperSearchRecord(currentHistory, normalizedRecord);
+      void setSetting(SETTING_KEYS.openPaperSearchHistory, nextHistory).catch((error) => {
+        console.warn("Failed to persist open paper search history", error);
+      });
+      return nextHistory;
+    });
+  }
+
   function revokeTabAssets(tabKey) {
     if (!tabKey) {
       return;
@@ -1541,6 +1668,94 @@ export default function App() {
     }
   }
 
+  async function handleCreateLatexProject() {
+    setSaving(true);
+    try {
+      await ensurePersistentStorage();
+      const draft = createLatexProjectDraft();
+      const savedProject = await saveLatexProject(draft, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local"
+      });
+      await refreshLatexProjects();
+      showToast("Created LaTeX project.");
+      navigate(buildLatexProjectUrl(savedProject.id));
+      void triggerNearbySync("save", {
+        force: true
+      });
+    } catch (error) {
+      showToast(stringifyError(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveLatexProject(project) {
+    const savedProject = await saveLatexProject(project, {
+      deviceId: deviceIdentityRef.current?.deviceId || "local"
+    });
+    setLatexWorkspace((current) =>
+      current.project?.id === savedProject.id
+        ? {
+            status: "ready",
+            project: savedProject,
+            error: ""
+          }
+        : current
+    );
+    await refreshLatexProjects();
+    void triggerNearbySync("save");
+    return savedProject;
+  }
+
+  async function handleDeleteLatexProject(projectId) {
+    if (!projectId || !window.confirm("Remove this LaTeX project from the library?")) {
+      return;
+    }
+
+    try {
+      await deleteLatexProject(projectId, {
+        deviceId: deviceIdentityRef.current?.deviceId || "local"
+      });
+      await refreshLatexProjects();
+      setLatexWorkspace({ status: "idle", project: null, error: "" });
+      navigate("/");
+      showToast("Removed LaTeX project.");
+      void triggerNearbySync("delete");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  function handleExportLatexProjectSource(project) {
+    try {
+      const { blob, filename } = exportLatexProjectSource(project);
+      downloadBlob(blob, filename);
+      showToast("Downloaded LaTeX source.");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  function handleExportLatexProjectHtml(project, rendered) {
+    try {
+      const { blob, filename } = exportLatexProjectHtml(project, rendered);
+      downloadBlob(blob, filename);
+      showToast("Downloaded rendered HTML.");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
+  function handleExportLatexProjectPdfBuild(project) {
+    try {
+      const { blob, filename } = exportLatexProjectPdfBuild(project);
+      downloadBlob(blob, filename);
+      showToast("Downloaded PDF build kit. Run make pdf to compile.");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
   async function handleExportLibrary() {
     try {
       const { payload } = await createLibraryBackup(APP_VERSION, BUILD_ID);
@@ -1573,30 +1788,28 @@ export default function App() {
         buildId: BUILD_ID
       });
       showToast(
-        `Downloaded backup and wrote ${folderExport.folderName} with ${folderExport.savedPaperCount} saved papers and ${folderExport.openTabCount} open tabs.`
+        `Downloaded backup and wrote ${folderExport.folderName} with ${folderExport.savedPaperCount} saved papers, ${folderExport.latexProjectCount || 0} LaTeX projects, and ${folderExport.openTabCount} open tabs.`
       );
     } catch (error) {
       showToast(stringifyError(error));
     }
   }
 
-  async function importLibraryFile(file, { expectedKind = "any" } = {}) {
-    const importDetails = await inspectImportFile(file);
-
-    if (expectedKind === "snapshot" && importDetails.kind !== "snapshot") {
-      showToast("That file only contains URLs. Use Restore from URLs instead.");
-      return false;
-    }
-
-    if (expectedKind === "manifest" && importDetails.kind !== "manifest") {
-      showToast("That file contains a full local backup. Use Restore Local Backup instead.");
+  async function importLibraryFile(file) {
+    let contents = "";
+    let importDetails;
+    try {
+      contents = await file.text();
+      importDetails = inspectImportContents(contents);
+    } catch (error) {
+      showToast(stringifyError(error));
       return false;
     }
 
     if (
       importDetails.kind === "manifest" &&
       !window.confirm(
-        "This URL recovery file will refetch papers from arXiv and may use mobile data. Continue?"
+        "This URL list only stores paper URLs, so restoring it will refetch papers from arXiv and may use mobile data. Continue?"
       )
     ) {
       return false;
@@ -1606,6 +1819,7 @@ export default function App() {
     try {
       await ensurePersistentStorage();
       const result = await importLibraryBackup(file, {
+        contents,
         deviceId: deviceIdentityRef.current?.deviceId || "local",
         concurrency: 2
       });
@@ -1618,10 +1832,12 @@ export default function App() {
 
       if (result.kind === "manifest") {
         showToast(
-          `Restored ${result.restoredIds.length}, skipped ${result.skippedIds.length}, failed ${result.failed.length}.`
+          `Restored URL list: ${result.restoredIds.length} restored, ${result.skippedIds.length} skipped, ${result.failed.length} failed.`
         );
       } else {
-        showToast(`Restored backup with ${result.paperCount} papers.`);
+        showToast(
+          `Restored backup with ${result.paperCount} papers and ${result.latexProjectCount || 0} LaTeX projects.`
+        );
       }
       return true;
     } catch (error) {
@@ -1633,9 +1849,7 @@ export default function App() {
   }
 
   async function handleImportLibrary(file) {
-    return importLibraryFile(file, {
-      expectedKind: "snapshot"
-    });
+    return importLibraryFile(file);
   }
 
   async function handleChooseBackupFile() {
@@ -1670,9 +1884,11 @@ export default function App() {
         lastWrittenAt: backupState.lastWrittenAt,
         filename: String(handle.name || backupState.filename || "").trim(),
         lastMirroredFingerprint: backupState.lastMirroredFingerprint,
-        lastMirroredPaperIds: backupState.lastMirroredPaperIds
+        lastMirroredPaperIds: backupState.lastMirroredPaperIds,
+        lastMirroredLatexProjectIds: backupState.lastMirroredLatexProjectIds
       });
       await mirrorBackupFile(library.papers, {
+        latexProjects,
         showSuccessToast: true
       });
     } catch (error) {
@@ -2155,7 +2371,7 @@ export default function App() {
       await refreshPairedDevices();
       if (result.pulledCount) {
         await refreshLibrary();
-        if (parseRoute().kind === "saved-paper") {
+        if (["saved-paper", "latex-project"].includes(parseRoute().kind)) {
           setRouteVersion((value) => value + 1);
         }
       }
@@ -2295,14 +2511,28 @@ export default function App() {
     }));
   }
 
-  const showReader = route.kind !== "library" && (reader.status === "loading" || Boolean(activeTabKey));
+  const showLatexWorkspace = route.kind === "latex-project";
+  const showReader =
+    ["receive", "saved-paper"].includes(route.kind) &&
+    (reader.status === "loading" || Boolean(activeTabKey));
 
   return (
     <main className="app-shell">
-      <div className="ambient ambient--one" />
-      <div className="ambient ambient--two" />
-
-      {showReader ? (
+      {showLatexWorkspace ? (
+        <LatexWorkspaceView
+          project={latexWorkspace.project}
+          status={latexWorkspace.status}
+          busy={saving}
+          error={latexWorkspace.error}
+          onBack={() => navigate("/")}
+          onSave={handleSaveLatexProject}
+          onDelete={handleDeleteLatexProject}
+          onExportSource={handleExportLatexProjectSource}
+          onExportHtml={handleExportLatexProjectHtml}
+          onExportPdfBuild={handleExportLatexProjectPdfBuild}
+          showToast={showToast}
+        />
+      ) : showReader ? (
         <ReaderView
           tabs={openTabs}
           activeTabKey={activeTabKey}
@@ -2337,6 +2567,8 @@ export default function App() {
       ) : (
         <LibraryView
           papers={library.papers}
+          latexProjects={latexProjects}
+          paperSuggestions={openPaperSearchHistory}
           theoremNotes={theoremNotes}
           loading={library.loading}
           backupImporting={backupImporting}
@@ -2359,6 +2591,9 @@ export default function App() {
           onClearInput={() => setLibraryInput("")}
           onSubmitUrl={openReceiveInput}
           onOpenPaper={(paperId) => navigate(`/?paper=${encodeURIComponent(paperId)}`)}
+          onCreateLatexProject={handleCreateLatexProject}
+          onOpenLatexProject={(projectId) => navigate(buildLatexProjectUrl(projectId))}
+          onDeleteLatexProject={handleDeleteLatexProject}
           onOpenNotePaper={openReceiveInput}
           onExportPaper={handleExportPaper}
           onDeletePaper={handleDeletePaper}
@@ -2376,6 +2611,7 @@ export default function App() {
 function parseRoute() {
   const url = new URL(window.location.href);
   const paperId = url.searchParams.get("paper")?.trim() || "";
+  const latexProjectId = url.searchParams.get("tex")?.trim() || "";
   const pairInviteId =
     extractInviteId(url.searchParams.get("pair")) ||
     extractProtocolPairId(url.searchParams.get("protocol"));
@@ -2385,8 +2621,19 @@ function parseRoute() {
     return {
       kind: "receive",
       paperId: "",
+      latexProjectId: "",
       pairInviteId,
       payload: readReceivePayload(url, protocolPayload)
+    };
+  }
+
+  if (latexProjectId) {
+    return {
+      kind: "latex-project",
+      paperId: "",
+      latexProjectId,
+      pairInviteId,
+      payload: null
     };
   }
 
@@ -2394,6 +2641,7 @@ function parseRoute() {
     return {
       kind: "saved-paper",
       paperId,
+      latexProjectId: "",
       pairInviteId,
       payload: null
     };
@@ -2402,6 +2650,7 @@ function parseRoute() {
   return {
     kind: "library",
     paperId: "",
+    latexProjectId: "",
     pairInviteId,
     payload: null
   };
@@ -2421,6 +2670,64 @@ function shouldReplacePaperTitle(currentTitle, nextTitle, paperId, replaceableTi
   );
 
   return !normalizedCurrent || normalizedCurrent === paperId || replaceable.has(normalizedCurrent);
+}
+
+function normalizeOpenPaperSearchHistory(records) {
+  const history = Array.isArray(records) ? records : [];
+  const seenIds = new Set();
+
+  return history
+    .map((record) => normalizeOpenPaperSearchRecord(record))
+    .filter(Boolean)
+    .sort(compareOpenPaperSearchRecords)
+    .filter((record) => {
+      if (seenIds.has(record.id)) {
+        return false;
+      }
+
+      seenIds.add(record.id);
+      return true;
+    })
+    .slice(0, OPEN_PAPER_SEARCH_HISTORY_LIMIT);
+}
+
+function normalizeOpenPaperSearchRecord(record) {
+  const id = normalizeArxivId(record?.id || record?.url || record?.sourceUrl || "");
+  if (!id) {
+    return null;
+  }
+
+  const title = normalizePaperTitle(record?.title || "", id) || id;
+  const searchedAt = String(record?.searchedAt || "").trim();
+
+  return {
+    id,
+    title,
+    url: buildArxivAbsUrl(id),
+    searchedAt
+  };
+}
+
+function upsertOpenPaperSearchRecord(currentHistory, record) {
+  const normalizedRecord = normalizeOpenPaperSearchRecord(record);
+  if (!normalizedRecord) {
+    return normalizeOpenPaperSearchHistory(currentHistory);
+  }
+
+  return normalizeOpenPaperSearchHistory([
+    normalizedRecord,
+    ...(Array.isArray(currentHistory) ? currentHistory : [])
+  ]);
+}
+
+function compareOpenPaperSearchRecords(left, right) {
+  const leftTime = Date.parse(left.searchedAt || "") || 0;
+  const rightTime = Date.parse(right.searchedAt || "") || 0;
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+
+  return left.id.localeCompare(right.id);
 }
 
 function extractProtocolPairId(protocolValue) {
@@ -2497,6 +2804,10 @@ function buildSavedPaperUrl(paperId) {
   return `/?paper=${encodeURIComponent(paperId)}`;
 }
 
+function buildLatexProjectUrl(projectId) {
+  return `/?tex=${encodeURIComponent(projectId)}`;
+}
+
 function getReaderStateFromTab(tab) {
   return {
     status: tab.status || (tab.paper ? "ready" : "idle"),
@@ -2556,7 +2867,8 @@ function createDefaultBackupState() {
     lastWrittenAt: "",
     filename: "",
     lastMirroredFingerprint: "",
-    lastMirroredPaperIds: []
+    lastMirroredPaperIds: [],
+    lastMirroredLatexProjectIds: []
   };
 }
 
@@ -2592,6 +2904,9 @@ function normalizeBackupState(value) {
     lastMirroredFingerprint: String(value?.lastMirroredFingerprint || ""),
     lastMirroredPaperIds: Array.isArray(value?.lastMirroredPaperIds)
       ? value.lastMirroredPaperIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : [],
+    lastMirroredLatexProjectIds: Array.isArray(value?.lastMirroredLatexProjectIds)
+      ? value.lastMirroredLatexProjectIds.map((id) => String(id || "").trim()).filter(Boolean)
       : []
   };
 }
@@ -2609,7 +2924,8 @@ function migrateLegacyRecoveryState(value) {
     lastWrittenAt: value.lastWrittenAt,
     filename: value.filename,
     lastMirroredFingerprint: "",
-    lastMirroredPaperIds: []
+    lastMirroredPaperIds: [],
+    lastMirroredLatexProjectIds: []
   };
 }
 
