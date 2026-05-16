@@ -7,6 +7,16 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const libraryViewPath = path.resolve(testDir, "./LibraryView.jsx");
 
 describe("LibraryView theorem notes integration", () => {
+  it("organizes the library workspace behind sidebar pages", () => {
+    const source = fs.readFileSync(libraryViewPath, "utf8");
+
+    expect(source).toMatch(/LIBRARY_PAGE_IDS = \["home", "browse", "library", "notes", "edit"\]/);
+    expect(source).toMatch(/const \[activeLibraryPage, setActiveLibraryPage\]/);
+    expect(source).toMatch(/LibraryNavIcon/);
+    expect(source).toMatch(/Paper Gallery/);
+    expect(source).toMatch(/setLibraryPageInUrl/);
+  });
+
   it("renders a central notes repository with theorem and note text", () => {
     const source = fs.readFileSync(libraryViewPath, "utf8");
 

@@ -13,6 +13,7 @@ const OPEN_PAPER_URL_PREFIX_ALIASES = [
   "abs/"
 ];
 const OPEN_PAPER_SUGGESTION_LIMIT = 6;
+const LIBRARY_PAGE_IDS = ["home", "browse", "library", "notes", "edit"];
 
 export default function LibraryView({
   papers,
@@ -59,10 +60,23 @@ export default function LibraryView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sortDirection, setSortDirection] = useState("desc");
   const [openPaperMenuId, setOpenPaperMenuId] = useState("");
+  const [activeLibraryPage, setActiveLibraryPage] = useState(() => getInitialLibraryPage());
 
   useEffect(() => {
     setInputValue(defaultInput || "");
   }, [defaultInput]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveLibraryPage(getInitialLibraryPage());
+      setOpenPaperMenuId("");
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!openPaperMenuId) {
@@ -133,12 +147,28 @@ export default function LibraryView({
   const showOpenPaperSuggestions = openSuggestionsOpen && openPaperSuggestions.length > 0;
   const hasActiveOpenSuggestion =
     activeOpenSuggestionIndex >= 0 && activeOpenSuggestionIndex < openPaperSuggestions.length;
+  const recentViewedPapers = filterOpenPaperSuggestions(paperSuggestions, "").slice(0, 8);
+  const recentSavedPapers = sortedPapers.slice(0, 8);
+  const sidebarItems = [
+    { id: "home", label: "Gallery", count: "" },
+    { id: "browse", label: "Browse Papers", count: recentViewedPapers.length },
+    { id: "library", label: "Library", count: papers.length },
+    { id: "notes", label: "Notes", count: theoremNotes.length },
+    { id: "edit", label: "Edit Papers", count: latexProjects.length }
+  ];
 
   const applyOpenPaperSuggestion = (suggestion) => {
     const nextValue = getOpenPaperSuggestionUrl(suggestion);
     setInputValue(nextValue);
     setOpenSuggestionsOpen(false);
     setActiveOpenSuggestionIndex(-1);
+  };
+
+  const navigateLibraryPage = (pageId) => {
+    const nextPage = normalizeLibraryPage(pageId);
+    setActiveLibraryPage(nextPage);
+    setLibraryPageInUrl(nextPage);
+    setOpenPaperMenuId("");
   };
 
   const handleOpenPaperKeyDown = (event) => {
@@ -198,411 +228,481 @@ export default function LibraryView({
     }
   };
 
+  const renderOpenPaperCard = (className = "form-card") => (
+    <section className={`card ${className}`}>
+      <div className="section-heading">
+        <h2>Open Paper</h2>
+        <p>Paste an arXiv URL, or use the bookmarklet found in settings.</p>
+      </div>
+
+      {receiveMessage ? <p className="banner">{receiveMessage}</p> : null}
+
+      <form
+        className="inline-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmitUrl(inputValue);
+        }}
+      >
+        <div className="input-shell open-paper-shell">
+          <input
+            className="url-input"
+            type="text"
+            inputMode="url"
+            placeholder="https://arxiv.org/abs/1706.03762"
+            value={inputValue}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="open-paper-suggestions"
+            aria-expanded={showOpenPaperSuggestions}
+            aria-activedescendant={
+              hasActiveOpenSuggestion
+                ? `open-paper-suggestion-${activeOpenSuggestionIndex}`
+                : undefined
+            }
+            onFocus={() => setOpenSuggestionsOpen(true)}
+            onBlur={() => {
+              window.setTimeout(() => {
+                setOpenSuggestionsOpen(false);
+                setActiveOpenSuggestionIndex(-1);
+              }, 120);
+            }}
+            onInput={(event) => {
+              setInputValue(event.currentTarget.value);
+              setOpenSuggestionsOpen(true);
+              setActiveOpenSuggestionIndex(-1);
+            }}
+            onKeyDown={handleOpenPaperKeyDown}
+          />
+          {inputValue ? (
+            <button
+              className="input-clear"
+              type="button"
+              aria-label="Clear paper link"
+              onClick={() => {
+                setInputValue("");
+                onClearInput();
+              }}
+            >
+              ×
+            </button>
+          ) : null}
+          {showOpenPaperSuggestions ? (
+            <div
+              className="open-paper-suggestions"
+              id="open-paper-suggestions"
+              role="listbox"
+              aria-label="Recent paper searches"
+            >
+              {openPaperSuggestions.map((suggestion, index) => (
+                <button
+                  className={`paper-suggestion${
+                    activeOpenSuggestionIndex === index ? " paper-suggestion--active" : ""
+                  }`}
+                  id={`open-paper-suggestion-${index}`}
+                  key={suggestion.id}
+                  role="option"
+                  aria-selected={activeOpenSuggestionIndex === index}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    applyOpenPaperSuggestion(suggestion);
+                  }}
+                >
+                  <span className="paper-suggestion-title">{suggestion.title}</span>
+                  <span className="paper-suggestion-url">
+                    {getOpenPaperSuggestionUrl(suggestion)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button className="primary-button" type="submit">
+          Open
+        </button>
+      </form>
+    </section>
+  );
+
+  const renderRecentPreviews = (items = recentViewedPapers) => (
+    <div className="document-gallery">
+      {items.map((suggestion) => (
+        <RecentPaperPreview
+          key={suggestion.id}
+          suggestion={suggestion}
+          onOpen={() => onSubmitUrl(getOpenPaperSuggestionUrl(suggestion))}
+        />
+      ))}
+    </div>
+  );
+
+  const renderSavedPreviews = (items) => (
+    <div className="document-gallery">
+      {items.map((paper) => (
+        <SavedPaperPreview
+          key={paper.id}
+          paper={paper}
+          menuOpen={openPaperMenuId === paper.id}
+          onOpen={() => onOpenPaper(paper.id)}
+          onToggleMenu={() =>
+            setOpenPaperMenuId((current) => (current === paper.id ? "" : paper.id))
+          }
+          onExport={() => {
+            setOpenPaperMenuId("");
+            onExportPaper(paper.id);
+          }}
+          onDelete={() => {
+            setOpenPaperMenuId("");
+            onDeletePaper(paper.id);
+          }}
+        />
+      ))}
+    </div>
+  );
+
+  const renderProjectPreviews = (items) => (
+    <div className="document-gallery document-gallery--projects">
+      {items.map((project) => {
+        const menuId = getLatexProjectMenuId(project.id);
+        return (
+          <LatexProjectPreview
+            key={project.id}
+            project={project}
+            menuOpen={openPaperMenuId === menuId}
+            onOpen={() => onOpenLatexProject(project.id)}
+            onToggleMenu={() =>
+              setOpenPaperMenuId((current) => (current === menuId ? "" : menuId))
+            }
+            onDelete={() => {
+              setOpenPaperMenuId("");
+              onDeleteLatexProject(project.id);
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+
+  const renderHomePage = () => (
+    <div className="library-page">
+      <header className="dashboard-header">
+        <div className="dashboard-copy">
+          <p className="dashboard-subtext">Recently viewed and saved papers</p>
+          <h1>Paper Gallery</h1>
+        </div>
+        <div className="dashboard-actions">
+          <div className="dashboard-stat" aria-label={`${papers.length} saved papers`}>
+            <strong>{papers.length}</strong>
+            <span>Papers</span>
+          </div>
+          <div className="dashboard-stat" aria-label={`${theoremNotes.length} saved notes`}>
+            <strong>{theoremNotes.length}</strong>
+            <span>Notes</span>
+          </div>
+          <div className="dashboard-stat" aria-label={`${latexProjects.length} LaTeX projects`}>
+            <strong>{latexProjects.length}</strong>
+            <span>Drafts</span>
+          </div>
+        </div>
+      </header>
+
+      {renderOpenPaperCard("form-card gallery-search-card")}
+
+      <section className="card gallery-section">
+        <div className="library-heading">
+          <div className="section-heading section-heading--compact">
+            <h2>Recently Viewed</h2>
+            <p>Recent paper searches and opens appear here.</p>
+          </div>
+          <button className="ghost-button" type="button" onClick={() => navigateLibraryPage("browse")}>
+            Browse Papers
+          </button>
+        </div>
+        {recentViewedPapers.length ? (
+          renderRecentPreviews(recentViewedPapers.slice(0, 6))
+        ) : (
+          <p className="empty-state">No recent papers yet.</p>
+        )}
+      </section>
+
+      <section className="card gallery-section">
+        <div className="library-heading">
+          <div className="section-heading section-heading--compact">
+            <h2>Saved Papers</h2>
+            <p>Open a saved document preview from your library.</p>
+          </div>
+          <button className="ghost-button" type="button" onClick={() => navigateLibraryPage("library")}>
+            View Library
+          </button>
+        </div>
+        {loading ? <p className="empty-state">Loading your library…</p> : null}
+        {!loading && recentSavedPapers.length ? (
+          renderSavedPreviews(recentSavedPapers.slice(0, 6))
+        ) : null}
+        {!loading && !recentSavedPapers.length ? (
+          <p className="empty-state">
+            No saved papers yet. Open one in skim mode and use Save to Library.
+          </p>
+        ) : null}
+      </section>
+    </div>
+  );
+
+  const renderBrowsePage = () => (
+    <div className="library-page">
+      <header className="dashboard-header">
+        <div className="dashboard-copy">
+          <p className="dashboard-subtext">Search arXiv and reopen recent documents</p>
+          <h1>Browse Papers</h1>
+        </div>
+      </header>
+
+      {renderOpenPaperCard("form-card gallery-search-card")}
+
+      <section className="card gallery-section">
+        <div className="section-heading">
+          <h2>Recently Viewed</h2>
+          <p>Recent paper searches and opens appear here.</p>
+        </div>
+        {recentViewedPapers.length ? (
+          renderRecentPreviews(recentViewedPapers)
+        ) : (
+          <p className="empty-state">No recent papers yet.</p>
+        )}
+      </section>
+    </div>
+  );
+
+  const renderLibraryPage = () => (
+    <div className="library-page">
+      <section className="card library-card">
+        <div className="library-heading">
+          <div className="section-heading section-heading--compact">
+            <h2>Saved Library</h2>
+            <p>Search by title or arXiv ID.</p>
+          </div>
+          <button
+            className="sort-button"
+            type="button"
+            aria-label={sortButtonLabel}
+            title={sortButtonLabel}
+            onClick={() =>
+              setSortDirection((current) => (current === "desc" ? "asc" : "desc"))
+            }
+          >
+            {sortDirection === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
+          </button>
+        </div>
+
+        <div className="library-toolbar">
+          <div className="input-shell">
+            <input
+              className="url-input"
+              type="search"
+              placeholder="Search saved papers"
+              value={libraryQuery}
+              onInput={(event) => setLibraryQuery(event.currentTarget.value)}
+            />
+          </div>
+        </div>
+
+        {loading ? <p className="empty-state">Loading your library…</p> : null}
+        {!loading && !papers.length ? (
+          <p className="empty-state">
+            No saved papers yet. Open one in skim mode and use Save to Library.
+          </p>
+        ) : null}
+        {!loading && papers.length && !filteredPapers.length ? (
+          <p className="empty-state">No saved papers match that search.</p>
+        ) : null}
+        {filteredPapers.length ? renderSavedPreviews(filteredPapers) : null}
+      </section>
+    </div>
+  );
+
+  const renderNotesPage = () => (
+    <div className="library-page">
+      <section className="card notes-card">
+        <div className="library-heading">
+          <div className="section-heading section-heading--compact">
+            <h2>Notes</h2>
+            <p>Your saved theorem notes live here.</p>
+          </div>
+          <p className="notes-count">{theoremNotes.length} saved</p>
+        </div>
+
+        <div className="library-toolbar">
+          <div className="input-shell">
+            <input
+              className="url-input"
+              type="search"
+              placeholder="Search notes"
+              value={noteQuery}
+              onInput={(event) => setNoteQuery(event.currentTarget.value)}
+            />
+          </div>
+        </div>
+
+        {!theoremNotes.length ? (
+          <p className="empty-state">No notes yet. Right-click a theorem and choose Create note.</p>
+        ) : null}
+        {theoremNotes.length && !filteredNotes.length ? (
+          <p className="empty-state">No notes match that search.</p>
+        ) : null}
+
+        <div className="notes-list">
+          {filteredNotes.map((note) => (
+            <article className="note-card note-card--preview" key={note.id}>
+              <div className="note-card-header">
+                <div>
+                  <h3>{note.paperTitle || note.paperId || "Untitled paper"}</h3>
+                  <p className="paper-id">{note.paperId || "Unlinked paper"}</p>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => onOpenNotePaper(note.paperId)}
+                  disabled={!note.paperId}
+                >
+                  Open paper
+                </button>
+              </div>
+
+              <div className="note-card-reference">
+                <span className="sync-label">Reference</span>
+                {note.referenceUrl ? (
+                  <a href={note.referenceUrl} target="_blank" rel="noreferrer">
+                    {note.referenceLabel || note.referenceUrl}
+                  </a>
+                ) : (
+                  <span>{note.referenceLabel || "Reference unavailable"}</span>
+                )}
+              </div>
+
+              <p className="note-card-theorem">{note.theoremText}</p>
+              <p className="note-card-body">{note.noteText}</p>
+              {note.speechTranscript && note.speechTranscript !== note.noteText ? (
+                <div className="note-card-ai">
+                  <p className="sync-label">Transcript</p>
+                  <p className="note-card-transcript">{note.speechTranscript}</p>
+                </div>
+              ) : null}
+              {note.mathLatex ? (
+                <div className="note-card-ai">
+                  <p className="sync-label">LaTeX</p>
+                  <pre className="note-card-latex">
+                    <code>{note.mathLatex}</code>
+                  </pre>
+                </div>
+              ) : null}
+              <p className="paper-meta">
+                Saved {new Date(note.updatedAt || note.createdAt).toLocaleString()}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderEditPage = () => (
+    <div className="library-page">
+      <section className="card latex-card">
+        <div className="library-heading">
+          <div className="section-heading section-heading--compact">
+            <h2>Edit Papers</h2>
+            <p>LaTeX Projects and drafts with rendered math preview.</p>
+          </div>
+          <button className="primary-button" type="button" onClick={onCreateLatexProject}>
+            New Project
+          </button>
+        </div>
+
+        <div className="library-toolbar">
+          <div className="input-shell">
+            <input
+              className="url-input"
+              type="search"
+              placeholder="Search LaTeX projects"
+              value={latexProjectQuery}
+              onInput={(event) => setLatexProjectQuery(event.currentTarget.value)}
+            />
+          </div>
+        </div>
+
+        {!latexProjects.length ? (
+          <p className="empty-state">No LaTeX projects yet.</p>
+        ) : null}
+        {latexProjects.length && !filteredLatexProjects.length ? (
+          <p className="empty-state">No LaTeX projects match that search.</p>
+        ) : null}
+        {filteredLatexProjects.length ? renderProjectPreviews(filteredLatexProjects) : null}
+      </section>
+    </div>
+  );
+
+  const renderActivePage = () => {
+    if (activeLibraryPage === "browse") {
+      return renderBrowsePage();
+    }
+    if (activeLibraryPage === "library") {
+      return renderLibraryPage();
+    }
+    if (activeLibraryPage === "notes") {
+      return renderNotesPage();
+    }
+    if (activeLibraryPage === "edit") {
+      return renderEditPage();
+    }
+    return renderHomePage();
+  };
+
   return (
     <>
       <div className="library-shell">
-        <header className="dashboard-header">
-          <div className="dashboard-copy">
-            <p className="dashboard-subtext">arXiv papers, LaTeX projects, notes, and offline sync</p>
-            <h1>ar5iv Reader</h1>
-          </div>
-          <div className="dashboard-actions">
-            <div className="dashboard-stat" aria-label={`${papers.length} saved papers`}>
-              <strong>{papers.length}</strong>
-              <span>Papers</span>
+        <div className="library-layout">
+          <aside className="library-sidebar" aria-label="Workspace navigation">
+            <div className="library-brand">
+              <div className="library-brand-mark" aria-hidden="true">
+                ar
+              </div>
+              <div>
+                <p className="dashboard-subtext">ar5iv Reader</p>
+                <h1>Workspace</h1>
+              </div>
             </div>
-            <div className="dashboard-stat" aria-label={`${theoremNotes.length} saved notes`}>
-              <strong>{theoremNotes.length}</strong>
-              <span>Notes</span>
-            </div>
-            <div className="dashboard-stat" aria-label={`${latexProjects.length} LaTeX projects`}>
-              <strong>{latexProjects.length}</strong>
-              <span>LaTeX</span>
-            </div>
+
+            <nav className="library-nav" aria-label="Library sections">
+              {sidebarItems.map((item) => (
+                <button
+                  className={`library-nav-button${
+                    activeLibraryPage === item.id ? " library-nav-button--active" : ""
+                  }`}
+                  type="button"
+                  key={item.id}
+                  aria-current={activeLibraryPage === item.id ? "page" : undefined}
+                  onClick={() => navigateLibraryPage(item.id)}
+                >
+                  <LibraryNavIcon id={item.id} />
+                  <span>{item.label}</span>
+                  {item.count !== "" ? <strong>{item.count}</strong> : null}
+                </button>
+              ))}
+            </nav>
+
             <button
-              className="icon-button"
+              className="library-settings-button"
               type="button"
-              aria-label="Open settings"
               onClick={() => setSettingsOpen(true)}
             >
               <SettingsIcon />
+              <span>Settings & Sync</span>
             </button>
-          </div>
-        </header>
+          </aside>
 
-        <section className="card form-card">
-          <div className="section-heading">
-            <h2>Open Paper</h2>
-            <p>Paste an arXiv URL, or use the bookmarklet found in settings.</p>
-          </div>
-
-          {receiveMessage ? <p className="banner">{receiveMessage}</p> : null}
-
-          <form
-            className="inline-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSubmitUrl(inputValue);
-            }}
-          >
-            <div className="input-shell open-paper-shell">
-              <input
-                className="url-input"
-                type="text"
-                inputMode="url"
-                placeholder="https://arxiv.org/abs/1706.03762"
-                value={inputValue}
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls="open-paper-suggestions"
-                aria-expanded={showOpenPaperSuggestions}
-                aria-activedescendant={
-                  hasActiveOpenSuggestion
-                    ? `open-paper-suggestion-${activeOpenSuggestionIndex}`
-                    : undefined
-                }
-                onFocus={() => setOpenSuggestionsOpen(true)}
-                onBlur={() => {
-                  window.setTimeout(() => {
-                    setOpenSuggestionsOpen(false);
-                    setActiveOpenSuggestionIndex(-1);
-                  }, 120);
-                }}
-                onInput={(event) => {
-                  setInputValue(event.currentTarget.value);
-                  setOpenSuggestionsOpen(true);
-                  setActiveOpenSuggestionIndex(-1);
-                }}
-                onKeyDown={handleOpenPaperKeyDown}
-              />
-              {inputValue ? (
-                <button
-                  className="input-clear"
-                  type="button"
-                  aria-label="Clear paper link"
-                  onClick={() => {
-                    setInputValue("");
-                    onClearInput();
-                  }}
-                >
-                  ×
-                </button>
-              ) : null}
-              {showOpenPaperSuggestions ? (
-                <div
-                  className="open-paper-suggestions"
-                  id="open-paper-suggestions"
-                  role="listbox"
-                  aria-label="Recent paper searches"
-                >
-                  {openPaperSuggestions.map((suggestion, index) => (
-                    <button
-                      className={`paper-suggestion${
-                        activeOpenSuggestionIndex === index ? " paper-suggestion--active" : ""
-                      }`}
-                      id={`open-paper-suggestion-${index}`}
-                      key={suggestion.id}
-                      role="option"
-                      aria-selected={activeOpenSuggestionIndex === index}
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        applyOpenPaperSuggestion(suggestion);
-                      }}
-                    >
-                      <span className="paper-suggestion-title">{suggestion.title}</span>
-                      <span className="paper-suggestion-url">
-                        {getOpenPaperSuggestionUrl(suggestion)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <button className="primary-button" type="submit">
-              Open
-            </button>
-          </form>
-        </section>
-
-        <section className="card latex-card">
-          <div className="library-heading">
-            <div className="section-heading section-heading--compact">
-              <h2>LaTeX Projects</h2>
-              <p>Draft papers and research notes with rendered math preview.</p>
-            </div>
-            <button className="primary-button" type="button" onClick={onCreateLatexProject}>
-              New Project
-            </button>
-          </div>
-
-          <div className="library-toolbar">
-            <div className="input-shell">
-              <input
-                className="url-input"
-                type="search"
-                placeholder="Search LaTeX projects"
-                value={latexProjectQuery}
-                onInput={(event) => setLatexProjectQuery(event.currentTarget.value)}
-              />
-            </div>
-          </div>
-
-          {!latexProjects.length ? (
-            <p className="empty-state">No LaTeX projects yet.</p>
-          ) : null}
-          {latexProjects.length && !filteredLatexProjects.length ? (
-            <p className="empty-state">No LaTeX projects match that search.</p>
-          ) : null}
-
-          <div className="paper-list latex-project-list">
-            {filteredLatexProjects.map((project) => {
-              const menuId = getLatexProjectMenuId(project.id);
-              return (
-                <article
-                  className={`paper-row latex-project-row${
-                    openPaperMenuId === menuId ? " paper-row--menu-open" : ""
-                  }`}
-                  key={project.id}
-                >
-                  <div className="paper-row-copy">
-                    <h3>{project.title}</h3>
-                    <p className="paper-id">{project.id}</p>
-                    <p className="paper-meta">
-                      Updated {new Date(project.updatedAt || project.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="paper-actions">
-                    <button
-                      className="primary-button"
-                      type="button"
-                      onClick={() => onOpenLatexProject(project.id)}
-                    >
-                      Open
-                    </button>
-                    <div className="paper-menu-shell">
-                      <button
-                        className="icon-button icon-button--menu"
-                        type="button"
-                        aria-label={`More actions for ${project.title}`}
-                        aria-expanded={openPaperMenuId === menuId}
-                        aria-haspopup="menu"
-                        onClick={() =>
-                          setOpenPaperMenuId((current) => (current === menuId ? "" : menuId))
-                        }
-                      >
-                        <MoreIcon />
-                      </button>
-                      {openPaperMenuId === menuId ? (
-                        <div className="paper-menu" role="menu" aria-label={`Actions for ${project.title}`}>
-                          <button
-                            className="paper-menu-danger"
-                            role="menuitem"
-                            type="button"
-                            onClick={() => {
-                              setOpenPaperMenuId("");
-                              onDeleteLatexProject(project.id);
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="card library-card">
-          <div className="library-heading">
-            <div className="section-heading section-heading--compact">
-              <h2>Saved Library</h2>
-              <p>Search by title or arXiv ID.</p>
-            </div>
-            <button
-              className="sort-button"
-              type="button"
-              aria-label={sortButtonLabel}
-              title={sortButtonLabel}
-              onClick={() =>
-                setSortDirection((current) => (current === "desc" ? "asc" : "desc"))
-              }
-            >
-              {sortDirection === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
-            </button>
-          </div>
-
-          <div className="library-toolbar">
-            <div className="input-shell">
-              <input
-                className="url-input"
-                type="search"
-                placeholder="Search saved papers"
-                value={libraryQuery}
-                onInput={(event) => setLibraryQuery(event.currentTarget.value)}
-              />
-            </div>
-          </div>
-
-          {loading ? <p className="empty-state">Loading your library…</p> : null}
-          {!loading && !papers.length ? (
-            <p className="empty-state">
-              No saved papers yet. Open one in skim mode and use Save to Library.
-            </p>
-          ) : null}
-          {!loading && papers.length && !filteredPapers.length ? (
-            <p className="empty-state">No saved papers match that search.</p>
-          ) : null}
-
-          <div className="paper-list">
-            {filteredPapers.map((paper) => (
-              <article
-                className={`paper-row${openPaperMenuId === paper.id ? " paper-row--menu-open" : ""}`}
-                key={paper.id}
-              >
-                <div className="paper-row-copy">
-                  <h3>{paper.title}</h3>
-                  <p className="paper-id">{paper.id}</p>
-                  <p className="paper-meta">
-                    Updated {new Date(paper.updatedAt || paper.savedAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="paper-actions">
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() => onOpenPaper(paper.id)}
-                  >
-                    Open
-                  </button>
-                  <div className="paper-menu-shell">
-                    <button
-                      className="icon-button icon-button--menu"
-                      type="button"
-                      aria-label={`More actions for ${paper.title}`}
-                      aria-expanded={openPaperMenuId === paper.id}
-                      aria-haspopup="menu"
-                      onClick={() =>
-                        setOpenPaperMenuId((current) => (current === paper.id ? "" : paper.id))
-                      }
-                    >
-                      <MoreIcon />
-                    </button>
-                    {openPaperMenuId === paper.id ? (
-                      <div className="paper-menu" role="menu" aria-label={`Actions for ${paper.title}`}>
-                        <button
-                          role="menuitem"
-                          type="button"
-                          onClick={() => {
-                            setOpenPaperMenuId("");
-                            onExportPaper(paper.id);
-                          }}
-                        >
-                          Export HTML
-                        </button>
-                        <button
-                          className="paper-menu-danger"
-                          role="menuitem"
-                          type="button"
-                          onClick={() => {
-                            setOpenPaperMenuId("");
-                            onDeletePaper(paper.id);
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="card notes-card">
-          <div className="library-heading">
-            <div className="section-heading section-heading--compact">
-              <h2>Notes</h2>
-              <p>Your saved theorem notes live here.</p>
-            </div>
-            <p className="notes-count">{theoremNotes.length} saved</p>
-          </div>
-
-          <div className="library-toolbar">
-            <div className="input-shell">
-              <input
-                className="url-input"
-                type="search"
-                placeholder="Search notes"
-                value={noteQuery}
-                onInput={(event) => setNoteQuery(event.currentTarget.value)}
-              />
-            </div>
-          </div>
-
-          {!theoremNotes.length ? (
-            <p className="empty-state">No notes yet. Right-click a theorem and choose Create note.</p>
-          ) : null}
-          {theoremNotes.length && !filteredNotes.length ? (
-            <p className="empty-state">No notes match that search.</p>
-          ) : null}
-
-          <div className="notes-list">
-            {filteredNotes.map((note) => (
-              <article className="note-card" key={note.id}>
-                <div className="note-card-header">
-                  <div>
-                    <h3>{note.paperTitle || note.paperId || "Untitled paper"}</h3>
-                    <p className="paper-id">{note.paperId || "Unlinked paper"}</p>
-                  </div>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => onOpenNotePaper(note.paperId)}
-                    disabled={!note.paperId}
-                  >
-                    Open paper
-                  </button>
-                </div>
-
-                <div className="note-card-reference">
-                  <span className="sync-label">Reference</span>
-                  {note.referenceUrl ? (
-                    <a href={note.referenceUrl} target="_blank" rel="noreferrer">
-                      {note.referenceLabel || note.referenceUrl}
-                    </a>
-                  ) : (
-                    <span>{note.referenceLabel || "Reference unavailable"}</span>
-                  )}
-                </div>
-
-                <p className="note-card-theorem">{note.theoremText}</p>
-                <p className="note-card-body">{note.noteText}</p>
-                {note.speechTranscript && note.speechTranscript !== note.noteText ? (
-                  <div className="note-card-ai">
-                    <p className="sync-label">Transcript</p>
-                    <p className="note-card-transcript">{note.speechTranscript}</p>
-                  </div>
-                ) : null}
-                {note.mathLatex ? (
-                  <div className="note-card-ai">
-                    <p className="sync-label">LaTeX</p>
-                    <pre className="note-card-latex">
-                      <code>{note.mathLatex}</code>
-                    </pre>
-                  </div>
-                ) : null}
-                <p className="paper-meta">
-                  Saved {new Date(note.updatedAt || note.createdAt).toLocaleString()}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
+          <div className="library-main">{renderActivePage()}</div>
+        </div>
       </div>
 
       {settingsOpen ? (
@@ -786,6 +886,212 @@ function formatBackupStatus(backupState, papers, latexProjects = []) {
   const includedCount = papers.filter((paper) => mirroredIds.has(paper.id)).length;
   const includedProjectCount = latexProjects.filter((project) => mirroredProjectIds.has(project.id)).length;
   return `${includedCount} of ${papers.length} papers and ${includedProjectCount} of ${latexProjects.length} LaTeX projects included in backup.`;
+}
+
+function getInitialLibraryPage() {
+  if (typeof window === "undefined") {
+    return "home";
+  }
+
+  try {
+    return normalizeLibraryPage(new URL(window.location.href).searchParams.get("view"));
+  } catch {
+    return "home";
+  }
+}
+
+function normalizeLibraryPage(pageId) {
+  const normalizedPageId = String(pageId || "").trim().toLowerCase();
+  return LIBRARY_PAGE_IDS.includes(normalizedPageId) ? normalizedPageId : "home";
+}
+
+function setLibraryPageInUrl(pageId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextPage = normalizeLibraryPage(pageId);
+  const url = new URL(window.location.href);
+  if (nextPage === "home") {
+    url.searchParams.delete("view");
+  } else {
+    url.searchParams.set("view", nextPage);
+  }
+
+  const nextPath = `${url.pathname}${url.search}${url.hash}`;
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextPath !== currentPath) {
+    window.history.pushState({}, "", nextPath);
+  }
+}
+
+function formatDateTime(value) {
+  const timestamp = Date.parse(value || "");
+  return timestamp ? new Date(timestamp).toLocaleString() : "Unknown date";
+}
+
+function RecentPaperPreview({ suggestion, onOpen }) {
+  const title = suggestion.title || suggestion.id || "Untitled paper";
+  const url = getOpenPaperSuggestionUrl(suggestion);
+
+  return (
+    <article className="paper-preview-card">
+      <button className="paper-preview-main" type="button" onClick={onOpen}>
+        <PaperPreviewThumbnail label="arXiv" />
+        <span className="paper-preview-copy">
+          <span className="paper-preview-title">{title}</span>
+          <span className="paper-id">{suggestion.id}</span>
+          <span className="paper-meta">{url}</span>
+        </span>
+      </button>
+    </article>
+  );
+}
+
+function SavedPaperPreview({ paper, menuOpen, onOpen, onToggleMenu, onExport, onDelete }) {
+  const title = paper.title || paper.id || "Untitled paper";
+  const previewLabel = paper.contentType === "pdf" ? "PDF" : "HTML";
+
+  return (
+    <article className={`paper-preview-card${menuOpen ? " paper-row--menu-open" : ""}`}>
+      <button className="paper-preview-main" type="button" onClick={onOpen}>
+        <PaperPreviewThumbnail label={previewLabel} />
+        <span className="paper-preview-copy">
+          <span className="paper-preview-title">{title}</span>
+          <span className="paper-id">{paper.id}</span>
+          <span className="paper-meta">
+            Updated {formatDateTime(paper.updatedAt || paper.savedAt)}
+          </span>
+        </span>
+      </button>
+      <div className="paper-preview-actions paper-menu-shell">
+        <button
+          className="icon-button icon-button--menu"
+          type="button"
+          aria-label={`More actions for ${title}`}
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          onClick={onToggleMenu}
+        >
+          <MoreIcon />
+        </button>
+        {menuOpen ? (
+          <div className="paper-menu" role="menu" aria-label={`Actions for ${title}`}>
+            <button role="menuitem" type="button" onClick={onExport}>
+              Export HTML
+            </button>
+            <button className="paper-menu-danger" role="menuitem" type="button" onClick={onDelete}>
+              Remove
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function LatexProjectPreview({ project, menuOpen, onOpen, onToggleMenu, onDelete }) {
+  const title = project.title || project.id || "Untitled project";
+
+  return (
+    <article className={`paper-preview-card${menuOpen ? " paper-row--menu-open" : ""}`}>
+      <button className="paper-preview-main" type="button" onClick={onOpen}>
+        <PaperPreviewThumbnail label="TeX" />
+        <span className="paper-preview-copy">
+          <span className="paper-preview-title">{title}</span>
+          <span className="paper-id">{project.id}</span>
+          <span className="paper-meta">
+            Updated {formatDateTime(project.updatedAt || project.createdAt)}
+          </span>
+        </span>
+      </button>
+      <div className="paper-preview-actions paper-menu-shell">
+        <button
+          className="icon-button icon-button--menu"
+          type="button"
+          aria-label={`More actions for ${title}`}
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          onClick={onToggleMenu}
+        >
+          <MoreIcon />
+        </button>
+        {menuOpen ? (
+          <div className="paper-menu" role="menu" aria-label={`Actions for ${title}`}>
+            <button className="paper-menu-danger" role="menuitem" type="button" onClick={onDelete}>
+              Remove
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function PaperPreviewThumbnail({ label }) {
+  return (
+    <span className="paper-preview-thumbnail" aria-hidden="true">
+      <span className="paper-preview-label">{label}</span>
+      <span className="paper-preview-line" />
+      <span className="paper-preview-line paper-preview-line--short" />
+      <span className="paper-preview-line" />
+    </span>
+  );
+}
+
+function LibraryNavIcon({ id }) {
+  if (id === "browse") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M10.8 4a6.8 6.8 0 0 1 5.35 11l3.42 3.43a1 1 0 0 1-1.42 1.41l-3.42-3.42A6.8 6.8 0 1 1 10.8 4Zm0 2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6Z"
+        />
+      </svg>
+    );
+  }
+
+  if (id === "library") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M5 4.5A2.5 2.5 0 0 1 7.5 2h9A2.5 2.5 0 0 1 19 4.5v15a1 1 0 0 1-1.46.89L12 17.52l-5.54 2.87A1 1 0 0 1 5 19.5v-15Zm2.5-.5a.5.5 0 0 0-.5.5v13.36l4.54-2.35a1 1 0 0 1 .92 0L17 17.86V4.5a.5.5 0 0 0-.5-.5h-9Z"
+        />
+      </svg>
+    );
+  }
+
+  if (id === "notes") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M6 3h9.6a1 1 0 0 1 .7.3l2.4 2.4a1 1 0 0 1 .3.7V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h11V7.41L14.59 5H6Zm2 5h7v2H8v-2Zm0 4h7v2H8v-2Z"
+        />
+      </svg>
+    );
+  }
+
+  if (id === "edit") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M16.86 3.59a2 2 0 0 1 2.83 0l.72.72a2 2 0 0 1 0 2.83l-9.9 9.9a1 1 0 0 1-.45.26l-4.12 1.18a1 1 0 0 1-1.24-1.24l1.18-4.12a1 1 0 0 1 .26-.45l9.9-9.9Zm1.41 1.42-9.53 9.53-.46 1.6 1.6-.46 9.53-9.53-.72-.72-.42-.42Z"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 5a2 2 0 0 1 2-2h5v8H4V5Zm9-2h5a2 2 0 0 1 2 2v5h-7V3ZM4 13h7v8H6a2 2 0 0 1-2-2v-6Zm9 0h7v6a2 2 0 0 1-2 2h-5v-8Z"
+      />
+    </svg>
+  );
 }
 
 function SettingsIcon() {
