@@ -19,6 +19,7 @@
     "@huggingface/transformers": "4.0.1",
     "@mlc-ai/web-llm": "0.2.82",
     "dompurify": "^3.3.3",
+    "katex": "^0.16.46",
     "onnxruntime-web": "1.24.3",
     "pdfjs-dist": "^5.5.207",
     "preact": "^10.29.0",

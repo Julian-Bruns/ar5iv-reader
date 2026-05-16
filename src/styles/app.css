@@ -224,6 +224,10 @@ textarea:focus-visible {
   position: relative;
 }
 
+.open-paper-shell {
+  z-index: 4;
+}
+
 .input-shell--action .url-input {
   padding-right: 3.35rem;
 }
@@ -288,6 +292,59 @@ textarea:focus-visible {
 .input-icon-button svg {
   width: 1.15rem;
   height: 1.15rem;
+}
+
+.open-paper-suggestions {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 0.2rem;
+  max-height: min(18rem, 54vh);
+  padding: 0.35rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.paper-suggestion {
+  display: grid;
+  width: 100%;
+  gap: 0.12rem;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.paper-suggestion:hover,
+.paper-suggestion--active {
+  background: var(--accent-soft);
+}
+
+.paper-suggestion-title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-suggestion-url {
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .primary-button,
@@ -610,6 +667,176 @@ textarea:focus-visible {
   justify-content: flex-end;
 }
 
+.setup-actions--bookmarklet {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.bookmarklet-drag-stage {
+  position: relative;
+  display: grid;
+  flex: 1 1 20rem;
+  max-width: 31rem;
+  min-width: min(100%, 18rem);
+  gap: 0.7rem;
+  padding: 0.75rem;
+  overflow: hidden;
+  border: 1px dashed #94a3b8;
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.08), transparent 42%),
+    #ffffff;
+}
+
+.bookmarklet-drag-stage::after {
+  content: "";
+  position: absolute;
+  top: 3rem;
+  right: 1.15rem;
+  width: 3.3rem;
+  height: 1.8rem;
+  border-top: 2px solid rgba(37, 99, 235, 0.5);
+  border-right: 2px solid rgba(37, 99, 235, 0.5);
+  border-radius: 0 0.65rem 0 0;
+  pointer-events: none;
+}
+
+.bookmarklet-drag-stage::before {
+  content: "";
+  position: absolute;
+  top: 4.62rem;
+  right: 0.95rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid rgba(37, 99, 235, 0.5);
+  border-bottom: 2px solid rgba(37, 99, 235, 0.5);
+  pointer-events: none;
+  transform: rotate(45deg);
+}
+
+.bookmarklet-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.45rem;
+  padding: 0.32rem 0.45rem 0.32rem 2.35rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.bookmarklet-browser-bar::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: -1.85rem;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow:
+    0.72rem 0 #f59e0b,
+    1.44rem 0 #22c55e;
+}
+
+.bookmarklet-browser-bar span {
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.bookmarklet-browser-bar span:nth-child(1) {
+  flex: 0 1 4.5rem;
+}
+
+.bookmarklet-browser-bar span:nth-child(2) {
+  flex: 0 1 3.2rem;
+}
+
+.bookmarklet-browser-bar span:nth-child(3) {
+  flex: 1 1 7rem;
+}
+
+.bookmarklet-chip {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.55rem;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: 0.56rem 0.74rem 0.56rem 0.48rem;
+  border: 1px solid #93c5fd;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1e3a8a;
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.14);
+  cursor: grab;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.bookmarklet-chip::after {
+  content: "";
+  position: absolute;
+  inset: -0.42rem;
+  border: 1px dashed rgba(37, 99, 235, 0.55);
+  border-radius: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.bookmarklet-drag-stage:hover .bookmarklet-chip,
+.bookmarklet-chip:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.2);
+}
+
+.bookmarklet-drag-stage:hover .bookmarklet-chip::after,
+.bookmarklet-chip:focus-visible::after {
+  opacity: 1;
+}
+
+.bookmarklet-chip:active {
+  cursor: grabbing;
+  transform: translateY(1px) scale(0.99);
+}
+
+.bookmarklet-grip-icon {
+  width: 1rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  color: #64748b;
+}
+
+.bookmarklet-chip-icon {
+  display: inline-flex;
+  width: 1.45rem;
+  height: 1.45rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.bookmarklet-chip-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.bookmarklet-chip-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .paper-menu-shell,
 .reader-menu-shell {
   position: relative;
@@ -743,6 +970,390 @@ textarea:focus-visible {
   font-size: 0.9rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.latex-card {
+  grid-column: 1 / -1;
+}
+
+.latex-project-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
+.latex-workspace-shell {
+  display: grid;
+  gap: 0.75rem;
+  width: min(1680px, 100%);
+  margin: 0 auto;
+}
+
+.latex-topbar,
+.latex-editor-panel,
+.latex-preview-panel,
+.latex-sidebar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.latex-topbar {
+  position: sticky;
+  top: 0.75rem;
+  z-index: 7;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
+.latex-title-group,
+.latex-actions,
+.latex-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.latex-title-group {
+  width: 100%;
+}
+
+.latex-title-input {
+  width: min(34rem, 100%);
+  min-width: 8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.62rem 0.75rem;
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.latex-save-state {
+  flex: 0 0 auto;
+  padding: 0.32rem 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.latex-save-state--saving,
+.latex-save-state--unsaved {
+  color: var(--warning);
+}
+
+.latex-save-state--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.latex-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.latex-segmented {
+  display: inline-flex;
+  min-height: 2.45rem;
+  padding: 0.22rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.latex-segmented button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.35rem 0.62rem;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.latex-segmented .latex-segmented-active {
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
+}
+
+.latex-workspace {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.28fr) minmax(24rem, 0.95fr) minmax(26rem, 1.05fr);
+  gap: 0.75rem;
+  align-items: stretch;
+  min-height: calc(100vh - 8.5rem);
+}
+
+.latex-workspace--source {
+  grid-template-columns: minmax(13rem, 0.24fr) minmax(0, 1fr);
+}
+
+.latex-workspace--preview {
+  grid-template-columns: minmax(13rem, 0.24fr) minmax(0, 1fr);
+}
+
+.latex-workspace--source .latex-preview-panel,
+.latex-workspace--preview .latex-editor-panel {
+  display: none;
+}
+
+.latex-sidebar,
+.latex-editor-panel,
+.latex-preview-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.latex-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 0.85rem;
+}
+
+.latex-sidebar-section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.latex-snippet-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+}
+
+.latex-snippet-grid .ghost-button {
+  justify-content: flex-start;
+  min-height: 2.25rem;
+  padding: 0.48rem 0.65rem;
+  white-space: normal;
+}
+
+.latex-outline,
+.latex-diagnostics {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.latex-outline-item {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.5rem;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.latex-outline-item:hover {
+  background: var(--accent-soft);
+}
+
+.latex-outline-item--level-3 {
+  padding-left: 1rem;
+  color: var(--text-muted);
+}
+
+.latex-outline-item--level-4 {
+  padding-left: 1.45rem;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.latex-diagnostic {
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.latex-diagnostic--warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: var(--warning);
+}
+
+.latex-diagnostic--error {
+  border-color: #fecdca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.latex-editor-panel,
+.latex-preview-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.latex-panel-header {
+  justify-content: space-between;
+  padding: 0.68rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.latex-source-input {
+  width: 100%;
+  height: 100%;
+  min-height: 34rem;
+  resize: none;
+  border: 0;
+  padding: 1rem;
+  background: #101820;
+  color: #f8fafc;
+  font-family: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.latex-source-input:focus {
+  outline-offset: -3px;
+}
+
+.latex-preview-surface {
+  min-height: 34rem;
+  overflow: auto;
+  background: #eef1f5;
+  padding: 1rem;
+}
+
+.latex-preview-document {
+  width: min(860px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 3rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: #111827;
+  box-shadow: var(--shadow-soft);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  line-height: 1.68;
+}
+
+.latex-preview-title {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.latex-preview-title h1 {
+  margin: 0;
+  font-size: clamp(1.7rem, 2vw, 2.25rem);
+  line-height: 1.18;
+}
+
+.latex-preview-byline {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.8rem;
+  color: var(--text-muted);
+  font-family: var(--paper-text-font-family, Georgia, "Times New Roman", serif);
+  font-size: 0.95rem;
+}
+
+.latex-preview-byline p,
+.latex-preview-document p {
+  margin: 0 0 1rem;
+}
+
+.latex-section-heading {
+  margin: 1.8rem 0 0.75rem;
+  color: #111827;
+  line-height: 1.25;
+}
+
+.latex-preview-document h2 {
+  font-size: 1.45rem;
+}
+
+.latex-preview-document h3 {
+  font-size: 1.2rem;
+}
+
+.latex-abstract,
+.latex-env,
+.latex-bibliography {
+  margin: 1.15rem 0;
+}
+
+.latex-abstract {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.latex-abstract h2,
+.latex-bibliography h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
+.latex-env {
+  padding: 0.85rem 1rem;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: #f8fafc;
+}
+
+.latex-env--proof {
+  border-left-color: var(--success);
+}
+
+.latex-env-label {
+  margin: 0 0 0.45rem;
+  color: #111827;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.latex-display-math {
+  max-width: 100%;
+  margin: 1.15rem 0;
+  overflow-x: auto;
+  padding: 0.35rem 0;
+  text-align: center;
+}
+
+.latex-math-error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.latex-list {
+  padding-left: 1.4rem;
+}
+
+.latex-citation {
+  color: var(--accent);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.92em;
+}
+
+.latex-center {
+  text-align: center;
+}
+
+.latex-bibliography ol {
+  padding-left: 1.4rem;
 }
 
 .empty-state {
@@ -1600,6 +2211,7 @@ textarea:focus-visible {
 
   .dashboard-header,
   .reader-topbar,
+  .latex-topbar,
   .paper-row,
   .note-card-header,
   .pair-card,
@@ -1620,9 +2232,40 @@ textarea:focus-visible {
   .dashboard-actions,
   .paper-actions,
   .reader-actions,
+  .latex-actions,
   .setup-actions,
   .hero-actions {
     justify-content: flex-start;
+  }
+
+  .latex-title-group {
+    flex-wrap: wrap;
+  }
+
+  .latex-title-input {
+    width: calc(100% - 3.4rem);
+  }
+
+  .latex-workspace,
+  .latex-workspace--source,
+  .latex-workspace--preview {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .latex-workspace--split .latex-sidebar,
+  .latex-workspace--source .latex-sidebar,
+  .latex-workspace--preview .latex-sidebar {
+    order: 3;
+  }
+
+  .latex-source-input,
+  .latex-preview-surface {
+    min-height: 28rem;
+  }
+
+  .latex-preview-document {
+    padding: 1.15rem;
   }
 
   .dashboard-actions {

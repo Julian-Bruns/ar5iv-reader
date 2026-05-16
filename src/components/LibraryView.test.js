@@ -18,4 +18,37 @@ describe("LibraryView theorem notes integration", () => {
     expect(source).toMatch(/note-card-latex/);
     expect(source).toMatch(/Open paper/);
   });
+
+  it("renders recent searched papers as open-paper suggestions with tab prefix completion", () => {
+    const source = fs.readFileSync(libraryViewPath, "utf8");
+
+    expect(source).toMatch(/paperSuggestions = \[\]/);
+    expect(source).toMatch(/open-paper-suggestions/);
+    expect(source).toMatch(/paper-suggestion-title/);
+    expect(source).toMatch(/paper-suggestion-url/);
+    expect(source).toMatch(/function completeOpenPaperUrlPrefix\(value\)/);
+    expect(source).toMatch(/event\.key === "Tab"/);
+    expect(source).toMatch(/https:\/\/arxiv\.org\/abs\//);
+  });
+
+  it("renders a LaTeX project repository with project creation and opening actions", () => {
+    const source = fs.readFileSync(libraryViewPath, "utf8");
+
+    expect(source).toMatch(/latexProjects = \[\]/);
+    expect(source).toMatch(/LaTeX Projects/);
+    expect(source).toMatch(/New Project/);
+    expect(source).toMatch(/Search LaTeX projects/);
+    expect(source).toMatch(/onCreateLatexProject/);
+    expect(source).toMatch(/onOpenLatexProject\(project\.id\)/);
+    expect(source).toMatch(/onDeleteLatexProject\(project\.id\)/);
+  });
+
+  it("keeps backup and URL-list restore on one upload control", () => {
+    const source = fs.readFileSync(libraryViewPath, "utf8");
+
+    expect(source).toMatch(/restore a backup or URL list/);
+    expect(source).toMatch(/Restoring…"\s*:\s*"Restore Backup"/);
+    expect(source).not.toMatch(/onRestoreUrls/);
+    expect(source).not.toMatch(/Restore From URLs/);
+  });
 });

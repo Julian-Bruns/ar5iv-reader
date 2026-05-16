@@ -1,14 +1,15 @@
 import { collectAssetUrls, fetchAssetRecords } from "./assets";
 
 const DB_NAME = "ar5iv-reader";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const PAPER_STORE = "papers";
 const ASSET_STORE = "assets";
 const SETTING_STORE = "settings";
+const LATEX_PROJECT_STORE = "latexProjects";
 const ML_MODEL_STORE = "mlModels";
 const ML_MODEL_META_STORE = "mlModelMeta";
 const PDF_RENDER_CACHE_STORE = "pdfRenderCache";
-const SNAPSHOT_SCHEMA_VERSION = 3;
+const SNAPSHOT_SCHEMA_VERSION = 4;
 const SYNCABLE_SETTINGS = new Set(["pdfFallbackNoticeEnabled", "theoremNotes"]);
 
 export const SETTING_KEYS = Object.freeze({
@@ -28,7 +29,8 @@ export const SETTING_KEYS = Object.freeze({
   recoveryFileState: "recoveryFileState",
   storageDiagnostics: "storageDiagnostics",
   installMeta: "installMeta",
-  recoveryState: "recoveryState"
+  recoveryState: "recoveryState",
+  openPaperSearchHistory: "openPaperSearchHistory"
 });
 
 let databasePromise;
@@ -44,6 +46,25 @@ export async function listPapers() {
 export async function listPaperIds() {
   const papers = await listPapers();
   return papers.map((paper) => paper.id);
+}
+
+export async function listLatexProjects() {
+  const records = await listAllLatexProjectRecords();
+  return records
+    .filter((record) => !getDeletedAtMs(record))
+    .map((record) => normalizeLatexProjectRecord(record))
+    .sort((left, right) => getRecordRevisionMs(right) - getRecordRevisionMs(left));
+}
+
+export async function getLatexProject(id) {
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readonly");
+  const record = await requestToPromise(transaction.objectStore(LATEX_PROJECT_STORE).get(id));
+  if (!record || getDeletedAtMs(record)) {
+    return null;
+  }
+
+  return normalizeLatexProjectRecord(record);
 }
 
 export async function hasPaper(id) {
@@ -181,6 +202,34 @@ export async function savePdfPaper(sessionPaper, { deviceId = "local" } = {}) {
   return normalizePaperRecord(paperRecord);
 }
 
+export async function saveLatexProject(project, { deviceId = "local" } = {}) {
+  const id = String(project?.id || "").trim();
+  if (!id) {
+    throw new Error("LaTeX project is missing an id.");
+  }
+
+  const savedAt = new Date().toISOString();
+  const existing = await getRawLatexProjectRecord(id);
+  const revisionMs = await claimNextRevisionMs();
+  const projectRecord = {
+    id,
+    title: String(project?.title || id).trim() || id,
+    source: String(project?.source || ""),
+    createdAt: existing?.createdAt || project?.createdAt || savedAt,
+    updatedAt: new Date(revisionMs).toISOString(),
+    revisionMs,
+    revisionDeviceId: deviceId,
+    deletedAtMs: 0,
+    deletedAt: ""
+  };
+
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readwrite");
+  transaction.objectStore(LATEX_PROJECT_STORE).put(projectRecord);
+  await transactionToPromise(transaction);
+  return normalizeLatexProjectRecord(projectRecord);
+}
+
 export async function deletePaper(id, { deviceId = "local" } = {}) {
   const existing = await getRawPaperRecord(id);
   const deletedAtMs = await claimNextRevisionMs();
@@ -209,6 +258,26 @@ export async function deletePaper(id, { deviceId = "local" } = {}) {
     pdfFingerprint: existing?.pdfFingerprint || "",
     pdfByteLength: Number(existing?.pdfByteLength || 0),
     pdfFetchStatus: ""
+  });
+  await transactionToPromise(transaction);
+}
+
+export async function deleteLatexProject(id, { deviceId = "local" } = {}) {
+  const existing = await getRawLatexProjectRecord(id);
+  const deletedAtMs = await claimNextRevisionMs();
+  const deletedAt = new Date(deletedAtMs).toISOString();
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readwrite");
+  transaction.objectStore(LATEX_PROJECT_STORE).put({
+    id,
+    title: existing?.title || id,
+    source: "",
+    createdAt: existing?.createdAt || deletedAt,
+    updatedAt: deletedAt,
+    revisionMs: deletedAtMs,
+    revisionDeviceId: deviceId,
+    deletedAtMs,
+    deletedAt
   });
   await transactionToPromise(transaction);
 }
@@ -326,6 +395,15 @@ export async function putPaperRecord(record) {
   await transactionToPromise(transaction);
 }
 
+export async function putLatexProjectRecord(record) {
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readwrite");
+  transaction
+    .objectStore(LATEX_PROJECT_STORE)
+    .put(denormalizeLatexProjectRecord(normalizeLatexProjectRecord(record)));
+  await transactionToPromise(transaction);
+}
+
 export async function getPdfRenderCacheRecord(key) {
   const database = await openDatabase();
   const transaction = database.transaction([PDF_RENDER_CACHE_STORE], "readonly");
@@ -397,6 +475,21 @@ export async function getPaperManifestEntries() {
   );
 }
 
+export async function getLatexProjectManifestEntries() {
+  const records = await listAllLatexProjectRecords();
+  return records
+    .map((record) => normalizeLatexProjectRecord(record))
+    .sort(compareById)
+    .map((record) => ({
+      id: record.id,
+      title: record.deletedAtMs ? "" : record.title,
+      revisionMs: record.revisionMs,
+      revisionDeviceId: record.revisionDeviceId,
+      deletedAtMs: record.deletedAtMs,
+      sourceHash: record.deletedAtMs ? "" : hashStringSync(record.source || "")
+    }));
+}
+
 export async function exportPaperTransferPayload(paperId, { includeAssets = true } = {}) {
   const database = await openDatabase();
   const transaction = database.transaction([PAPER_STORE, ASSET_STORE], "readonly");
@@ -457,14 +550,55 @@ export async function importPaperTransferPayload(payload) {
   return true;
 }
 
+export async function exportLatexProjectTransferPayload(projectId) {
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readonly");
+  const projectRecord = await requestToPromise(
+    transaction.objectStore(LATEX_PROJECT_STORE).get(projectId)
+  );
+
+  if (!projectRecord) {
+    throw new Error(`LaTeX project ${projectId} was not found.`);
+  }
+
+  return {
+    project: normalizeLatexProjectRecord(projectRecord)
+  };
+}
+
+export async function importLatexProjectTransferPayload(payload) {
+  const normalized = normalizeLatexProjectTransferPayload(payload);
+  const current = await getRawLatexProjectRecord(normalized.project.id);
+
+  if (current && comparePaperVersions(normalizeLatexProjectRecord(current), normalized.project) >= 0) {
+    return false;
+  }
+
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readwrite");
+  transaction.objectStore(LATEX_PROJECT_STORE).put(denormalizeLatexProjectRecord(normalized.project));
+  await transactionToPromise(transaction);
+  await updateLogicalClock(normalized.project.revisionMs);
+  return true;
+}
+
 export async function exportLibrarySnapshot() {
   const database = await openDatabase();
-  const transaction = database.transaction([PAPER_STORE, ASSET_STORE, SETTING_STORE], "readonly");
+  const transaction = database.transaction(
+    [PAPER_STORE, ASSET_STORE, SETTING_STORE, LATEX_PROJECT_STORE],
+    "readonly"
+  );
   const paperRecords = await requestToPromise(transaction.objectStore(PAPER_STORE).getAll());
   const assetRecords = await requestToPromise(transaction.objectStore(ASSET_STORE).getAll());
   const settingRecords = await requestToPromise(transaction.objectStore(SETTING_STORE).getAll());
+  const latexProjectRecords = await requestToPromise(
+    transaction.objectStore(LATEX_PROJECT_STORE).getAll()
+  );
 
   const papers = paperRecords.map((record) => normalizePaperRecord(record)).sort(compareById);
+  const latexProjects = latexProjectRecords
+    .map((record) => normalizeLatexProjectRecord(record))
+    .sort(compareById);
   const assets = await Promise.all(
     assetRecords
       .sort(compareById)
@@ -489,6 +623,7 @@ export async function exportLibrarySnapshot() {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     papers,
+    latexProjects,
     assets,
     settings
   };
@@ -497,16 +632,25 @@ export async function exportLibrarySnapshot() {
 export async function applyLibrarySnapshot(snapshot) {
   const normalized = normalizeSnapshot(snapshot);
   const database = await openDatabase();
-  const transaction = database.transaction([PAPER_STORE, ASSET_STORE, SETTING_STORE], "readwrite");
+  const transaction = database.transaction(
+    [PAPER_STORE, ASSET_STORE, SETTING_STORE, LATEX_PROJECT_STORE],
+    "readwrite"
+  );
   const paperStore = transaction.objectStore(PAPER_STORE);
   const assetStore = transaction.objectStore(ASSET_STORE);
   const settingStore = transaction.objectStore(SETTING_STORE);
+  const latexProjectStore = transaction.objectStore(LATEX_PROJECT_STORE);
 
   paperStore.clear();
   assetStore.clear();
+  latexProjectStore.clear();
 
   for (const paper of normalized.papers) {
     paperStore.put(denormalizePaperRecord(paper));
+  }
+
+  for (const project of normalized.latexProjects) {
+    latexProjectStore.put(denormalizeLatexProjectRecord(project));
   }
 
   for (const asset of normalized.assets) {
@@ -529,10 +673,15 @@ export async function applyLibrarySnapshot(snapshot) {
 
   await transactionToPromise(transaction);
 
-  const maxRevisionMs = normalized.papers.reduce(
+  const maxPaperRevisionMs = normalized.papers.reduce(
     (maxValue, paper) => Math.max(maxValue, paper.revisionMs || 0),
     0
   );
+  const maxProjectRevisionMs = normalized.latexProjects.reduce(
+    (maxValue, project) => Math.max(maxValue, project.revisionMs || 0),
+    0
+  );
+  const maxRevisionMs = Math.max(maxPaperRevisionMs, maxProjectRevisionMs);
   await updateLogicalClock(maxRevisionMs);
 }
 
@@ -600,6 +749,10 @@ function openDatabase() {
           database.createObjectStore(SETTING_STORE, { keyPath: "key" });
         }
 
+        if (!database.objectStoreNames.contains(LATEX_PROJECT_STORE)) {
+          database.createObjectStore(LATEX_PROJECT_STORE, { keyPath: "id" });
+        }
+
         if (!database.objectStoreNames.contains(ML_MODEL_STORE)) {
           const mlModelStore = database.createObjectStore(ML_MODEL_STORE, { keyPath: "key" });
           mlModelStore.createIndex("revision", "revision", { unique: false });
@@ -661,10 +814,22 @@ async function listAllPaperRecords() {
   return requestToPromise(transaction.objectStore(PAPER_STORE).getAll());
 }
 
+async function listAllLatexProjectRecords() {
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(LATEX_PROJECT_STORE).getAll());
+}
+
 async function getRawPaperRecord(id) {
   const database = await openDatabase();
   const transaction = database.transaction([PAPER_STORE], "readonly");
   return requestToPromise(transaction.objectStore(PAPER_STORE).get(id));
+}
+
+async function getRawLatexProjectRecord(id) {
+  const database = await openDatabase();
+  const transaction = database.transaction([LATEX_PROJECT_STORE], "readonly");
+  return requestToPromise(transaction.objectStore(LATEX_PROJECT_STORE).get(id));
 }
 
 function normalizePaperRecord(record) {
@@ -714,6 +879,38 @@ function denormalizePaperRecord(record) {
   };
 }
 
+function normalizeLatexProjectRecord(record) {
+  const revisionMs = getRecordRevisionMs(record);
+  const deletedAtMs = getDeletedAtMs(record);
+  const id = String(record?.id || "").trim();
+
+  return {
+    id,
+    title: String(record?.title || id || "Untitled LaTeX Project").trim(),
+    source: deletedAtMs ? "" : String(record?.source || ""),
+    createdAt: String(record?.createdAt || record?.savedAt || new Date(revisionMs || Date.now()).toISOString()),
+    updatedAt: String(record?.updatedAt || new Date(revisionMs || Date.now()).toISOString()),
+    revisionMs,
+    revisionDeviceId: String(record?.revisionDeviceId || "").trim(),
+    deletedAtMs,
+    deletedAt: deletedAtMs ? new Date(deletedAtMs).toISOString() : ""
+  };
+}
+
+function denormalizeLatexProjectRecord(record) {
+  return {
+    id: record.id,
+    title: record.title,
+    source: record.deletedAtMs ? "" : record.source || "",
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt || new Date(record.revisionMs || Date.now()).toISOString(),
+    revisionMs: record.revisionMs || Date.parse(record.updatedAt || record.createdAt || "") || 0,
+    revisionDeviceId: record.revisionDeviceId || "",
+    deletedAtMs: record.deletedAtMs || 0,
+    deletedAt: record.deletedAt || ""
+  };
+}
+
 function normalizeTransferPayload(payload) {
   if (!payload?.paper || typeof payload !== "object") {
     throw new Error("Incoming paper payload is invalid.");
@@ -745,6 +942,16 @@ function normalizeTransferPayload(payload) {
   };
 }
 
+function normalizeLatexProjectTransferPayload(payload) {
+  if (!payload?.project || typeof payload !== "object") {
+    throw new Error("Incoming LaTeX project payload is invalid.");
+  }
+
+  return {
+    project: normalizeLatexProjectRecord(payload.project)
+  };
+}
+
 function normalizeSnapshot(snapshot) {
   if (!snapshot || Number(snapshot.schemaVersion) < 1 || Number(snapshot.schemaVersion) > SNAPSHOT_SCHEMA_VERSION) {
     throw new Error("This backup file is not a supported ar5iv Reader backup.");
@@ -752,6 +959,9 @@ function normalizeSnapshot(snapshot) {
 
   const papers = Array.isArray(snapshot.papers)
     ? snapshot.papers.map((paper) => normalizePaperRecord(paper)).sort(compareById)
+    : [];
+  const latexProjects = Array.isArray(snapshot.latexProjects)
+    ? snapshot.latexProjects.map((project) => normalizeLatexProjectRecord(project)).sort(compareById)
     : [];
 
   const paperIds = new Set(papers.map((paper) => paper.id));
@@ -783,6 +993,7 @@ function normalizeSnapshot(snapshot) {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     exportedAt: String(snapshot.exportedAt || new Date().toISOString()),
     papers,
+    latexProjects,
     assets,
     settings
   };
@@ -887,6 +1098,16 @@ async function hashText(text) {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
     .slice(0, 24);
+}
+
+function hashStringSync(text) {
+  let hash = 2166136261;
+  const normalized = String(text || "");
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 async function hashBlob(blob) {

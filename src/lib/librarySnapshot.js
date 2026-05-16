@@ -1,10 +1,11 @@
-const SNAPSHOT_SCHEMA_VERSION = 3;
+const SNAPSHOT_SCHEMA_VERSION = 4;
 
 export function createEmptyLibrarySnapshot() {
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     exportedAt: new Date(0).toISOString(),
     papers: [],
+    latexProjects: [],
     assets: [],
     settings: []
   };
@@ -16,6 +17,7 @@ export function mergeLibrarySnapshots(leftSnapshot, rightSnapshot) {
   const leftAssetsByPaper = indexAssetsByPaper(left.assets);
   const rightAssetsByPaper = indexAssetsByPaper(right.assets);
   const papersById = new Map();
+  const latexProjectsById = new Map();
 
   for (const paper of left.papers) {
     papersById.set(paper.id, paper);
@@ -47,6 +49,17 @@ export function mergeLibrarySnapshots(leftSnapshot, rightSnapshot) {
     }
   }
 
+  for (const project of left.latexProjects) {
+    latexProjectsById.set(project.id, project);
+  }
+
+  for (const project of right.latexProjects) {
+    const current = latexProjectsById.get(project.id);
+    if (!current || comparePaperVersions(project, current) > 0) {
+      latexProjectsById.set(project.id, project);
+    }
+  }
+
   const settingsByKey = new Map();
   for (const setting of left.settings) {
     settingsByKey.set(setting.key, setting);
@@ -62,6 +75,7 @@ export function mergeLibrarySnapshots(leftSnapshot, rightSnapshot) {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     papers,
+    latexProjects: [...latexProjectsById.values()].sort(compareById),
     assets: assets.sort(compareById),
     settings: [...settingsByKey.values()].sort(compareById)
   };
@@ -124,6 +138,32 @@ function normalizeSnapshot(snapshot) {
                   : ""
           }))
           .filter((paper) => paper.id)
+          .sort(compareById)
+      : [],
+    latexProjects: Array.isArray(snapshot.latexProjects)
+      ? snapshot.latexProjects
+          .map((project) => {
+            const revisionMs =
+              Number(project.revisionMs || 0) ||
+              Date.parse(project.updatedAt || project.deletedAt || project.createdAt || "") ||
+              0;
+            const deletedAtMs =
+              Number(project.deletedAtMs || 0) ||
+              (project.deletedAt ? Date.parse(project.deletedAt) || 0 : 0);
+
+            return {
+              id: String(project.id || "").trim(),
+              title: String(project.title || project.id || "Untitled LaTeX Project").trim(),
+              source: deletedAtMs ? "" : String(project.source || ""),
+              createdAt: String(project.createdAt || new Date(revisionMs || 0).toISOString()),
+              updatedAt: String(project.updatedAt || project.createdAt || new Date(revisionMs || 0).toISOString()),
+              revisionMs,
+              revisionDeviceId: String(project.revisionDeviceId || "").trim(),
+              deletedAtMs,
+              deletedAt: deletedAtMs ? new Date(deletedAtMs).toISOString() : ""
+            };
+          })
+          .filter((project) => project.id)
           .sort(compareById)
       : [],
     assets: Array.isArray(snapshot.assets)

@@ -11,9 +11,10 @@ import {
   parseUrlManifest,
   restoreFromUrlManifest
 } from "./urlManifest";
+import { renderLatexDocument } from "./latexProjects";
 
 const BACKUP_FORMAT = "ar5iv-reader-backup";
-const BACKUP_SCHEMA_VERSION = 3;
+const BACKUP_SCHEMA_VERSION = 4;
 const FOLDER_EXPORT_FORMAT = "ar5iv-reader-folder-export";
 const FOLDER_EXPORT_SCHEMA_VERSION = 1;
 
@@ -36,8 +37,11 @@ export async function createLibraryBackup(
   const papers = (Array.isArray(snapshot.papers) ? snapshot.papers : []).filter(
     (paper) => !Number(paper?.deletedAtMs || 0)
   );
+  const latexProjects = (Array.isArray(snapshot.latexProjects) ? snapshot.latexProjects : []).filter(
+    (project) => !Number(project?.deletedAtMs || 0)
+  );
   const manifest = buildUrlManifest(papers, appVersion);
-  const fingerprint = buildBackupFingerprint(manifest.papers);
+  const fingerprint = buildBackupFingerprint(manifest.papers, latexProjects);
 
   return {
     fingerprint,
@@ -49,6 +53,7 @@ export async function createLibraryBackup(
       buildId: String(buildId || "").trim(),
       origin: typeof window === "undefined" ? "" : window.location.origin,
       paperCount: papers.length,
+      latexProjectCount: latexProjects.length,
       fingerprint,
       librarySnapshot: snapshot,
       manifest
@@ -104,13 +109,22 @@ export async function exportLibraryFolder(
   const openTabsDirectory = await exportDirectory.getDirectoryHandle("open-tabs", {
     create: true
   });
+  const latexProjectsDirectory = await exportDirectory.getDirectoryHandle("latex-projects", {
+    create: true
+  });
 
   const savedPapers = getVisibleSnapshotPapers(backupPayload?.librarySnapshot?.papers);
+  const savedLatexProjects = getVisibleSnapshotLatexProjects(
+    backupPayload?.librarySnapshot?.latexProjects
+  );
   const savedEntries = savedPapers.map((paper, index) =>
     buildPaperExportEntry(paper, {
       index,
       collection: "saved"
     })
+  );
+  const latexProjectEntries = savedLatexProjects.map((project, index) =>
+    buildLatexProjectExportEntry(project, { index })
   );
   const openTabEntries = buildOpenTabExportEntries(openTabs);
 
@@ -120,6 +134,10 @@ export async function exportLibraryFolder(
 
   for (const entry of openTabEntries) {
     await writePaperExportEntry(openTabsDirectory, entry);
+  }
+
+  for (const entry of latexProjectEntries) {
+    await writeLatexProjectExportEntry(latexProjectsDirectory, entry);
   }
 
   const manifest = {
@@ -132,8 +150,10 @@ export async function exportLibraryFolder(
     backupFilename: buildBackupFilename(normalizedExportedAt),
     folderName,
     savedPaperCount: savedEntries.length,
+    latexProjectCount: latexProjectEntries.length,
     openTabCount: openTabEntries.length,
     savedPapers: savedEntries.map((entry) => buildManifestEntry(entry)),
+    latexProjects: latexProjectEntries.map((entry) => buildLatexManifestEntry(entry)),
     openTabs: openTabEntries.map((entry) => buildManifestEntry(entry))
   };
 
@@ -142,6 +162,7 @@ export async function exportLibraryFolder(
   return {
     folderName,
     savedPaperCount: savedEntries.length,
+    latexProjectCount: latexProjectEntries.length,
     openTabCount: openTabEntries.length
   };
 }
@@ -177,11 +198,15 @@ export function inspectImportContents(contents) {
     // Fall back to URL-manifest detection below.
   }
 
-  return {
-    kind: "manifest",
-    source: "manifest",
-    manifest: parseUrlManifest(text)
-  };
+  try {
+    return {
+      kind: "manifest",
+      source: "manifest",
+      manifest: parseUrlManifest(text)
+    };
+  } catch {
+    throw new Error("This file is not a supported ar5iv Reader backup or URL list.");
+  }
 }
 
 export async function importLibraryBackup(file, options = {}) {
@@ -197,7 +222,8 @@ export async function importLibraryBackup(file, options = {}) {
     await applyLibrarySnapshot(mergedSnapshot);
     return {
       kind: "snapshot",
-      paperCount: countVisiblePapers(mergedSnapshot?.papers)
+      paperCount: countVisiblePapers(mergedSnapshot?.papers),
+      latexProjectCount: countVisibleLatexProjects(mergedSnapshot?.latexProjects)
     };
   }
 
@@ -217,8 +243,22 @@ export function buildFolderExportName(date = new Date()) {
   return `ar5iv-reader-export-${formatExportTimestamp(normalizedDate)}`;
 }
 
-export function buildBackupFingerprint(papers) {
-  return buildUrlManifestFingerprint(papers);
+export function buildBackupFingerprint(papers, latexProjects = []) {
+  const paperFingerprint = buildUrlManifestFingerprint(papers);
+  const projectFingerprint = (Array.isArray(latexProjects) ? latexProjects : [])
+    .filter((project) => !Number(project?.deletedAtMs || 0))
+    .map((project) =>
+      [
+        String(project?.id || "").trim(),
+        String(project?.title || "").trim(),
+        String(project?.updatedAt || "").trim(),
+        String(project?.revisionMs || "").trim()
+      ].join(":")
+    )
+    .sort()
+    .join("|");
+
+  return `${paperFingerprint}::tex:${projectFingerprint}`;
 }
 
 export function downloadBlob(blob, filename) {
@@ -257,10 +297,20 @@ function countVisiblePapers(papers) {
   return (Array.isArray(papers) ? papers : []).filter((paper) => !Number(paper?.deletedAtMs || 0)).length;
 }
 
+function countVisibleLatexProjects(projects) {
+  return (Array.isArray(projects) ? projects : []).filter((project) => !Number(project?.deletedAtMs || 0)).length;
+}
+
 function getVisibleSnapshotPapers(papers) {
   return (Array.isArray(papers) ? papers : [])
     .filter((paper) => !Number(paper?.deletedAtMs || 0))
     .sort(comparePapersForExport);
+}
+
+function getVisibleSnapshotLatexProjects(projects) {
+  return (Array.isArray(projects) ? projects : [])
+    .filter((project) => !Number(project?.deletedAtMs || 0))
+    .sort(compareProjectsForExport);
 }
 
 function buildOpenTabExportEntries(openTabs) {
@@ -324,6 +374,29 @@ function buildPaperExportEntry(paper, { index = 0, collection = "saved" } = {}) 
   };
 }
 
+function buildLatexProjectExportEntry(project, { index = 0 } = {}) {
+  const id = String(project?.id || "").trim();
+  const title = String(project?.title || id || `LaTeX project ${index + 1}`).trim();
+  const source = String(project?.source || "");
+  const rendered = renderLatexDocument(source, {
+    projectTitle: title
+  });
+
+  return {
+    folderName: buildPaperFolderName(title || id || `latex-project-${index + 1}`, index),
+    index,
+    id,
+    title,
+    source,
+    renderedHtml: rendered.html,
+    diagnostics: rendered.diagnostics,
+    createdAt: String(project?.createdAt || "").trim(),
+    updatedAt: String(project?.updatedAt || "").trim(),
+    revisionMs: Number(project?.revisionMs || 0),
+    revisionDeviceId: String(project?.revisionDeviceId || "").trim()
+  };
+}
+
 async function writePaperExportEntry(parentDirectory, entry) {
   const directory = await parentDirectory.getDirectoryHandle(entry.folderName, {
     create: true
@@ -358,6 +431,28 @@ async function writePaperExportEntry(parentDirectory, entry) {
   }
 }
 
+async function writeLatexProjectExportEntry(parentDirectory, entry) {
+  const directory = await parentDirectory.getDirectoryHandle(entry.folderName, {
+    create: true
+  });
+  await writeJsonFile(directory, "meta.json", {
+    itemType: "latex-project",
+    index: entry.index,
+    id: entry.id,
+    title: entry.title,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    revisionMs: entry.revisionMs,
+    revisionDeviceId: entry.revisionDeviceId,
+    diagnosticCount: entry.diagnostics.length
+  });
+  await writeTextFile(directory, "main.tex", entry.source);
+  await writeTextFile(directory, "preview.html", entry.renderedHtml);
+  if (entry.diagnostics.length) {
+    await writeJsonFile(directory, "diagnostics.json", entry.diagnostics);
+  }
+}
+
 async function writeJsonFile(directoryHandle, filename, value) {
   await writeTextFile(directoryHandle, filename, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -381,6 +476,17 @@ function buildManifestEntry(entry) {
     mode: entry.mode,
     hasHtml: Boolean(entry.html),
     hasText: Boolean(entry.text)
+  };
+}
+
+function buildLatexManifestEntry(entry) {
+  return {
+    folder: entry.folderName,
+    id: entry.id,
+    title: entry.title,
+    hasSource: Boolean(entry.source),
+    hasPreview: Boolean(entry.renderedHtml),
+    diagnosticCount: entry.diagnostics.length
   };
 }
 
@@ -445,6 +551,16 @@ function comparePapersForExport(left, right) {
   }
 
   return String(left?.id || "").localeCompare(String(right?.id || ""));
+}
+
+function compareProjectsForExport(left, right) {
+  const leftTime = Number(Date.parse(left?.updatedAt || left?.createdAt || "")) || 0;
+  const rightTime = Number(Date.parse(right?.updatedAt || right?.createdAt || "")) || 0;
+  if (rightTime !== leftTime) {
+    return rightTime - leftTime;
+  }
+
+  return String(left?.title || left?.id || "").localeCompare(String(right?.title || right?.id || ""));
 }
 
 function normalizeExportDate(value) {

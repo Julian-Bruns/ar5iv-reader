@@ -105,4 +105,48 @@ describe("librarySnapshot", () => {
       }
     ]);
   });
+
+  it("keeps the newer LaTeX project revision when merging snapshots", () => {
+    const left = {
+      ...createEmptyLibrarySnapshot(),
+      latexProjects: [
+        {
+          id: "tex-1",
+          title: "Older draft",
+          source: "old",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-01T00:00:00.000Z",
+          revisionMs: 10,
+          revisionDeviceId: "left",
+          deletedAtMs: 0
+        }
+      ]
+    };
+    const right = {
+      ...createEmptyLibrarySnapshot(),
+      latexProjects: [
+        {
+          id: "tex-1",
+          title: "Newer draft",
+          source: "new",
+          createdAt: "2026-04-01T00:00:00.000Z",
+          updatedAt: "2026-04-02T00:00:00.000Z",
+          revisionMs: 20,
+          revisionDeviceId: "right",
+          deletedAtMs: 0
+        }
+      ]
+    };
+
+    const merged = mergeLibrarySnapshots(left, right);
+
+    expect(merged.latexProjects).toEqual([
+      expect.objectContaining({
+        id: "tex-1",
+        title: "Newer draft",
+        source: "new",
+        revisionMs: 20
+      })
+    ]);
+  });
 });

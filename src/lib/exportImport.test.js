@@ -3,13 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   applyLibrarySnapshot: vi.fn(),
   exportLibrarySnapshot: vi.fn(),
-  getPaper: vi.fn()
+  getPaper: vi.fn(),
+  savePaper: vi.fn()
 }));
 
 vi.mock("./db", () => ({
   applyLibrarySnapshot: mocks.applyLibrarySnapshot,
   exportLibrarySnapshot: mocks.exportLibrarySnapshot,
-  getPaper: mocks.getPaper
+  getPaper: mocks.getPaper,
+  savePaper: mocks.savePaper
 }));
 
 describe("exportImport", () => {
@@ -18,11 +20,12 @@ describe("exportImport", () => {
     mocks.applyLibrarySnapshot.mockReset();
     mocks.exportLibrarySnapshot.mockReset();
     mocks.getPaper.mockReset();
+    mocks.savePaper.mockReset();
   });
 
   it("merges imported snapshots with the current library instead of replacing newer papers", async () => {
     mocks.exportLibrarySnapshot.mockResolvedValue({
-      schemaVersion: 3,
+      schemaVersion: 4,
       exportedAt: "2026-03-14T10:00:00.000Z",
       papers: [
         {
@@ -40,6 +43,7 @@ describe("exportImport", () => {
           assetUrls: ["https://cdn.example/new.png"]
         }
       ],
+      latexProjects: [],
       assets: [
         {
           key: "2401.00001::https://cdn.example/new.png",
@@ -81,6 +85,7 @@ describe("exportImport", () => {
                 assetUrls: ["https://cdn.example/old.png"]
               }
             ],
+            latexProjects: [],
             assets: [
               {
                 key: "2401.00001::https://cdn.example/old.png",
@@ -106,7 +111,8 @@ describe("exportImport", () => {
 
     expect(result).toEqual({
       kind: "snapshot",
-      paperCount: 1
+      paperCount: 1,
+      latexProjectCount: 0
     });
     expect(mocks.applyLibrarySnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -124,6 +130,117 @@ describe("exportImport", () => {
           })
         ]
       })
+    );
+  });
+
+  it("classifies both local backups and URL lists for the shared restore picker", async () => {
+    const { inspectImportContents } = await import("./exportImport");
+
+    expect(
+      inspectImportContents(
+        JSON.stringify({
+          schemaVersion: 3,
+          papers: [],
+          assets: []
+        })
+      )
+    ).toMatchObject({
+      kind: "snapshot",
+      source: "snapshot"
+    });
+
+    expect(
+      inspectImportContents(
+        JSON.stringify({
+          schemaVersion: 1,
+          exportedAt: "2026-03-14T10:00:00.000Z",
+          appVersion: "0.3.0",
+          origin: "https://reader.example",
+          papers: [
+            {
+              id: "2401.00002",
+              title: "URL restore",
+              sourceUrl: "https://arxiv.org/abs/2401.00002",
+              updatedAt: "2026-03-14T10:00:00.000Z",
+              revisionMs: 20
+            }
+          ]
+        })
+      )
+    ).toMatchObject({
+      kind: "manifest",
+      source: "manifest",
+      manifest: {
+        papers: [
+          expect.objectContaining({
+            id: "2401.00002"
+          })
+        ]
+      }
+    });
+
+    expect(() =>
+      inspectImportContents(
+        JSON.stringify({
+          schemaVersion: 99,
+          papers: []
+        })
+      )
+    ).toThrow("backup or URL list");
+  });
+
+  it("imports URL lists through the same backup import path", async () => {
+    const { importLibraryBackup } = await import("./exportImport");
+    const savePaperRecord = vi.fn(async () => null);
+    const fetchPaper = vi.fn(async (id, options) => ({
+      id,
+      sourceUrl: options.sourceUrl,
+      ar5ivUrl: `https://arxiv.org/html/${id}`,
+      html: "<article class=\"ltx_document\"></article>",
+      titleHint: options.titleHint,
+      view: "html"
+    }));
+
+    const result = await importLibraryBackup(
+      {
+        text: async () =>
+          JSON.stringify({
+            schemaVersion: 1,
+            exportedAt: "2026-03-14T10:00:00.000Z",
+            appVersion: "0.3.0",
+            origin: "https://reader.example",
+            papers: [
+              {
+                id: "2401.00003",
+                title: "Restored from URL",
+                sourceUrl: "https://arxiv.org/abs/2401.00003",
+                updatedAt: "2026-03-14T10:00:00.000Z",
+                revisionMs: 30
+              }
+            ]
+          })
+      },
+      {
+        getExistingPaper: vi.fn(async () => null),
+        fetchPaper,
+        savePaperRecord
+      }
+    );
+
+    expect(result).toEqual({
+      kind: "manifest",
+      restoredIds: ["2401.00003"],
+      skippedIds: [],
+      failed: []
+    });
+    expect(savePaperRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "2401.00003",
+        title: "Restored from URL"
+      }),
+      {
+        deviceId: "local"
+      }
     );
   });
 
@@ -154,6 +271,18 @@ describe("exportImport", () => {
               title: "Deleted paper",
               deletedAtMs: 1,
               html: "<article>ignore me</article>"
+            }
+          ],
+          latexProjects: [
+            {
+              id: "tex-local",
+              title: "Draft proof",
+              source: "\\section{Draft}\nLet $x^2$ be rendered.",
+              createdAt: "2026-04-05T00:00:00.000Z",
+              updatedAt: "2026-04-09T11:00:00.000Z",
+              revisionMs: 30,
+              revisionDeviceId: "local",
+              deletedAtMs: 0
             }
           ]
         }
@@ -206,12 +335,14 @@ describe("exportImport", () => {
     expect(result).toEqual({
       folderName: buildFolderExportName(exportedAt),
       savedPaperCount: 1,
+      latexProjectCount: 1,
       openTabCount: 3
     });
 
     const exportDirectory = rootDirectory.getDirectory(result.folderName);
     const manifest = JSON.parse(exportDirectory.readFile("manifest.json"));
     expect(manifest.savedPaperCount).toBe(1);
+    expect(manifest.latexProjectCount).toBe(1);
     expect(manifest.openTabCount).toBe(3);
 
     const savedPaperDirectory = exportDirectory
@@ -248,6 +379,17 @@ describe("exportImport", () => {
       id: "2403.00003",
       status: "error",
       error: "Failed to load"
+    });
+
+    const latexProjectDirectory = exportDirectory
+      .getDirectory("latex-projects")
+      .getDirectory("001-Draft-proof");
+    expect(latexProjectDirectory.readFile("main.tex")).toContain("\\section{Draft}");
+    expect(latexProjectDirectory.readFile("preview.html")).toContain("Draft");
+    expect(JSON.parse(latexProjectDirectory.readFile("meta.json"))).toMatchObject({
+      itemType: "latex-project",
+      id: "tex-local",
+      title: "Draft proof"
     });
   });
 });

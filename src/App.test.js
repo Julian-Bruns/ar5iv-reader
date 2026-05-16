@@ -71,6 +71,48 @@ describe("App PDF fallback integration", () => {
     expect(source).toMatch(/theoremNotes=\{theoremNotes\}/);
   });
 
+  it("uses the same restore picker for local backups and URL lists", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/async function importLibraryFile\(file\)/);
+    expect(source).toMatch(/inspectImportContents\(contents\)/);
+    expect(source).toMatch(/importLibraryBackup\(file, \{\s*contents,/s);
+    expect(source).toMatch(
+      /async function handleImportLibrary\(file\) \{\s*return importLibraryFile\(file\);\s*\}/
+    );
+    expect(source).not.toMatch(/Use Restore from URLs instead/);
+    expect(source).not.toMatch(/Use Restore Local Backup instead/);
+    expect(source).toMatch(/Restored URL list:/);
+  });
+
+  it("persists searched papers and passes them to the open paper box", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(
+      /const \[openPaperSearchHistory, setOpenPaperSearchHistory\] = useState\(\[\]\);/
+    );
+    expect(source).toMatch(/getSetting\(SETTING_KEYS\.openPaperSearchHistory\)/);
+    expect(source).toMatch(/setSetting\(SETTING_KEYS\.openPaperSearchHistory, nextHistory\)/);
+    expect(source).toMatch(/function rememberSearchedPaper\(record\)/);
+    expect(source).toMatch(/normalizeOpenPaperSearchHistory\(storedOpenPaperSearchHistory\?\.value\)/);
+    expect(source).toMatch(/paperSuggestions=\{openPaperSearchHistory\}/);
+  });
+
+  it("wires local LaTeX projects through library, routes, persistence, and export handlers", () => {
+    const source = fs.readFileSync(appPath, "utf8");
+
+    expect(source).toMatch(/const \[latexProjects, setLatexProjects\] = useState\(\[\]\);/);
+    expect(source).toMatch(/const \[latexWorkspace, setLatexWorkspace\] = useState/);
+    expect(source).toMatch(/listLatexProjects\(\)/);
+    expect(source).toMatch(/getLatexProject\(route\.latexProjectId\)/);
+    expect(source).toMatch(/saveLatexProject\(project/);
+    expect(source).toMatch(/deleteLatexProject\(projectId/);
+    expect(source).toMatch(/buildLatexProjectUrl\(projectId\)/);
+    expect(source).toMatch(/<LatexWorkspaceView/);
+    expect(source).toMatch(/latexProjects=\{latexProjects\}/);
+    expect(source).toMatch(/onCreateLatexProject=\{handleCreateLatexProject\}/);
+  });
+
   it("revokes superseded and closed PDF blob URLs through the App-owned lifecycle", () => {
     const source = fs.readFileSync(appPath, "utf8");
 

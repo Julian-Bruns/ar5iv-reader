@@ -2,8 +2,22 @@ import { useEffect, useState } from "preact/hooks";
 import BookmarkSetupPanel from "./BookmarkSetupPanel";
 import SyncPanel from "./SyncPanel";
 
+const OPEN_PAPER_URL_PREFIX = "https://arxiv.org/abs/";
+const OPEN_PAPER_URL_PREFIX_ALIASES = [
+  "http://arxiv.org/abs/",
+  "https://www.arxiv.org/abs/",
+  "http://www.arxiv.org/abs/",
+  "arxiv.org/abs/",
+  "www.arxiv.org/abs/",
+  "/abs/",
+  "abs/"
+];
+const OPEN_PAPER_SUGGESTION_LIMIT = 6;
+
 export default function LibraryView({
   papers,
+  latexProjects = [],
+  paperSuggestions = [],
   theoremNotes,
   loading,
   backupImporting,
@@ -26,6 +40,9 @@ export default function LibraryView({
   onClearInput,
   onSubmitUrl,
   onOpenPaper,
+  onCreateLatexProject,
+  onOpenLatexProject,
+  onDeleteLatexProject,
   onOpenNotePaper,
   onExportPaper,
   onDeletePaper,
@@ -34,7 +51,10 @@ export default function LibraryView({
   formatPairSyncStatus
 }) {
   const [inputValue, setInputValue] = useState(defaultInput || "");
+  const [openSuggestionsOpen, setOpenSuggestionsOpen] = useState(false);
+  const [activeOpenSuggestionIndex, setActiveOpenSuggestionIndex] = useState(-1);
   const [libraryQuery, setLibraryQuery] = useState("");
+  const [latexProjectQuery, setLatexProjectQuery] = useState("");
   const [noteQuery, setNoteQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sortDirection, setSortDirection] = useState("desc");
@@ -77,6 +97,18 @@ export default function LibraryView({
         return haystack.includes(normalizedQuery);
       })
     : sortedPapers;
+  const sortedLatexProjects = [...latexProjects].sort((left, right) => {
+    const leftTime = Date.parse(left.updatedAt || left.createdAt || "") || 0;
+    const rightTime = Date.parse(right.updatedAt || right.createdAt || "") || 0;
+    return rightTime - leftTime;
+  });
+  const normalizedLatexProjectQuery = latexProjectQuery.trim().toLowerCase();
+  const filteredLatexProjects = normalizedLatexProjectQuery
+    ? sortedLatexProjects.filter((project) => {
+        const haystack = `${project.title} ${project.id} ${project.source}`.toLowerCase();
+        return haystack.includes(normalizedLatexProjectQuery);
+      })
+    : sortedLatexProjects;
   const normalizedNoteQuery = noteQuery.trim().toLowerCase();
   const filteredNotes = normalizedNoteQuery
     ? theoremNotes.filter((note) => {
@@ -97,13 +129,81 @@ export default function LibraryView({
     : theoremNotes;
 
   const sortButtonLabel = sortDirection === "desc" ? "Sort by newest first" : "Sort by oldest first";
+  const openPaperSuggestions = filterOpenPaperSuggestions(paperSuggestions, inputValue);
+  const showOpenPaperSuggestions = openSuggestionsOpen && openPaperSuggestions.length > 0;
+  const hasActiveOpenSuggestion =
+    activeOpenSuggestionIndex >= 0 && activeOpenSuggestionIndex < openPaperSuggestions.length;
+
+  const applyOpenPaperSuggestion = (suggestion) => {
+    const nextValue = getOpenPaperSuggestionUrl(suggestion);
+    setInputValue(nextValue);
+    setOpenSuggestionsOpen(false);
+    setActiveOpenSuggestionIndex(-1);
+  };
+
+  const handleOpenPaperKeyDown = (event) => {
+    if (event.key === "Tab" && !event.shiftKey) {
+      const completion = completeOpenPaperUrlPrefix(event.currentTarget.value);
+      if (completion && completion !== event.currentTarget.value) {
+        const inputElement = event.currentTarget;
+        event.preventDefault();
+        setInputValue(completion);
+        window.requestAnimationFrame(() => {
+          inputElement.setSelectionRange(completion.length, completion.length);
+        });
+        return;
+      }
+
+      if (showOpenPaperSuggestions && hasActiveOpenSuggestion) {
+        event.preventDefault();
+        applyOpenPaperSuggestion(openPaperSuggestions[activeOpenSuggestionIndex]);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown" && openPaperSuggestions.length) {
+      event.preventDefault();
+      setOpenSuggestionsOpen(true);
+      setActiveOpenSuggestionIndex((current) =>
+        current < 0 ? 0 : Math.min(current + 1, openPaperSuggestions.length - 1)
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp" && openPaperSuggestions.length) {
+      event.preventDefault();
+      setOpenSuggestionsOpen(true);
+      setActiveOpenSuggestionIndex((current) =>
+        current <= 0 ? openPaperSuggestions.length - 1 : current - 1
+      );
+      return;
+    }
+
+    if (
+      event.key === "Enter" &&
+      showOpenPaperSuggestions &&
+      hasActiveOpenSuggestion
+    ) {
+      event.preventDefault();
+      const suggestion = openPaperSuggestions[activeOpenSuggestionIndex];
+      const nextValue = getOpenPaperSuggestionUrl(suggestion);
+      applyOpenPaperSuggestion(suggestion);
+      onSubmitUrl(nextValue);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setOpenSuggestionsOpen(false);
+      setActiveOpenSuggestionIndex(-1);
+    }
+  };
 
   return (
     <>
       <div className="library-shell">
         <header className="dashboard-header">
           <div className="dashboard-copy">
-            <p className="dashboard-subtext">arXiv papers, notes, and offline sync</p>
+            <p className="dashboard-subtext">arXiv papers, LaTeX projects, notes, and offline sync</p>
             <h1>ar5iv Reader</h1>
           </div>
           <div className="dashboard-actions">
@@ -114,6 +214,10 @@ export default function LibraryView({
             <div className="dashboard-stat" aria-label={`${theoremNotes.length} saved notes`}>
               <strong>{theoremNotes.length}</strong>
               <span>Notes</span>
+            </div>
+            <div className="dashboard-stat" aria-label={`${latexProjects.length} LaTeX projects`}>
+              <strong>{latexProjects.length}</strong>
+              <span>LaTeX</span>
             </div>
             <button
               className="icon-button"
@@ -141,14 +245,35 @@ export default function LibraryView({
               onSubmitUrl(inputValue);
             }}
           >
-            <div className="input-shell">
+            <div className="input-shell open-paper-shell">
               <input
                 className="url-input"
                 type="text"
                 inputMode="url"
                 placeholder="https://arxiv.org/abs/1706.03762"
                 value={inputValue}
-                onInput={(event) => setInputValue(event.currentTarget.value)}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="open-paper-suggestions"
+                aria-expanded={showOpenPaperSuggestions}
+                aria-activedescendant={
+                  hasActiveOpenSuggestion
+                    ? `open-paper-suggestion-${activeOpenSuggestionIndex}`
+                    : undefined
+                }
+                onFocus={() => setOpenSuggestionsOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setOpenSuggestionsOpen(false);
+                    setActiveOpenSuggestionIndex(-1);
+                  }, 120);
+                }}
+                onInput={(event) => {
+                  setInputValue(event.currentTarget.value);
+                  setOpenSuggestionsOpen(true);
+                  setActiveOpenSuggestionIndex(-1);
+                }}
+                onKeyDown={handleOpenPaperKeyDown}
               />
               {inputValue ? (
                 <button
@@ -163,11 +288,132 @@ export default function LibraryView({
                   ×
                 </button>
               ) : null}
+              {showOpenPaperSuggestions ? (
+                <div
+                  className="open-paper-suggestions"
+                  id="open-paper-suggestions"
+                  role="listbox"
+                  aria-label="Recent paper searches"
+                >
+                  {openPaperSuggestions.map((suggestion, index) => (
+                    <button
+                      className={`paper-suggestion${
+                        activeOpenSuggestionIndex === index ? " paper-suggestion--active" : ""
+                      }`}
+                      id={`open-paper-suggestion-${index}`}
+                      key={suggestion.id}
+                      role="option"
+                      aria-selected={activeOpenSuggestionIndex === index}
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        applyOpenPaperSuggestion(suggestion);
+                      }}
+                    >
+                      <span className="paper-suggestion-title">{suggestion.title}</span>
+                      <span className="paper-suggestion-url">
+                        {getOpenPaperSuggestionUrl(suggestion)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <button className="primary-button" type="submit">
               Open
             </button>
           </form>
+        </section>
+
+        <section className="card latex-card">
+          <div className="library-heading">
+            <div className="section-heading section-heading--compact">
+              <h2>LaTeX Projects</h2>
+              <p>Draft papers and research notes with rendered math preview.</p>
+            </div>
+            <button className="primary-button" type="button" onClick={onCreateLatexProject}>
+              New Project
+            </button>
+          </div>
+
+          <div className="library-toolbar">
+            <div className="input-shell">
+              <input
+                className="url-input"
+                type="search"
+                placeholder="Search LaTeX projects"
+                value={latexProjectQuery}
+                onInput={(event) => setLatexProjectQuery(event.currentTarget.value)}
+              />
+            </div>
+          </div>
+
+          {!latexProjects.length ? (
+            <p className="empty-state">No LaTeX projects yet.</p>
+          ) : null}
+          {latexProjects.length && !filteredLatexProjects.length ? (
+            <p className="empty-state">No LaTeX projects match that search.</p>
+          ) : null}
+
+          <div className="paper-list latex-project-list">
+            {filteredLatexProjects.map((project) => {
+              const menuId = getLatexProjectMenuId(project.id);
+              return (
+                <article
+                  className={`paper-row latex-project-row${
+                    openPaperMenuId === menuId ? " paper-row--menu-open" : ""
+                  }`}
+                  key={project.id}
+                >
+                  <div className="paper-row-copy">
+                    <h3>{project.title}</h3>
+                    <p className="paper-id">{project.id}</p>
+                    <p className="paper-meta">
+                      Updated {new Date(project.updatedAt || project.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="paper-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => onOpenLatexProject(project.id)}
+                    >
+                      Open
+                    </button>
+                    <div className="paper-menu-shell">
+                      <button
+                        className="icon-button icon-button--menu"
+                        type="button"
+                        aria-label={`More actions for ${project.title}`}
+                        aria-expanded={openPaperMenuId === menuId}
+                        aria-haspopup="menu"
+                        onClick={() =>
+                          setOpenPaperMenuId((current) => (current === menuId ? "" : menuId))
+                        }
+                      >
+                        <MoreIcon />
+                      </button>
+                      {openPaperMenuId === menuId ? (
+                        <div className="paper-menu" role="menu" aria-label={`Actions for ${project.title}`}>
+                          <button
+                            className="paper-menu-danger"
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setOpenPaperMenuId("");
+                              onDeleteLatexProject(project.id);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </section>
 
         <section className="card library-card">
@@ -387,7 +633,7 @@ export default function LibraryView({
                 <section className="tools-subsection">
                   <div className="section-heading section-heading--compact">
                     <h2>Backup</h2>
-                    <p>Download one backup file now, optionally write a paper folder export, or keep one selected file updated here.</p>
+                    <p>Download one backup file now, restore a backup or URL list, optionally write a paper folder export, or keep one selected file updated here.</p>
                   </div>
                   <div className="setup-actions">
                     <button className="primary-button" type="button" onClick={onDownloadBackup}>
@@ -413,7 +659,7 @@ export default function LibraryView({
                       </button>
                     ) : null}
                   </div>
-                  <p className="status-line">{formatBackupStatus(backupState, papers)}</p>
+                  <p className="status-line">{formatBackupStatus(backupState, papers, latexProjects)}</p>
                   {backupState.enabled && backupState.lastWrittenAt ? (
                     <p className="paper-meta">
                       {backupState.filename || "Selected backup file"} updated{" "}
@@ -453,7 +699,74 @@ export default function LibraryView({
   );
 }
 
-function formatBackupStatus(backupState, papers) {
+function filterOpenPaperSuggestions(suggestions, inputValue) {
+  const query = String(inputValue || "").trim().toLowerCase();
+  const seenIds = new Set();
+  const normalizedSuggestions = Array.isArray(suggestions) ? suggestions : [];
+
+  return normalizedSuggestions
+    .map((suggestion) => ({
+      id: String(suggestion?.id || "").trim(),
+      title: String(suggestion?.title || suggestion?.id || "").trim(),
+      url: String(suggestion?.url || "").trim()
+    }))
+    .filter((suggestion) => {
+      if (!suggestion.id || seenIds.has(suggestion.id)) {
+        return false;
+      }
+
+      seenIds.add(suggestion.id);
+      if (!query) {
+        return true;
+      }
+
+      return `${suggestion.title} ${suggestion.id} ${getOpenPaperSuggestionUrl(suggestion)}`
+        .toLowerCase()
+        .includes(query);
+    })
+    .slice(0, OPEN_PAPER_SUGGESTION_LIMIT);
+}
+
+function getOpenPaperSuggestionUrl(suggestion) {
+  const id = String(suggestion?.id || "").trim();
+  return String(suggestion?.url || "").trim() || `${OPEN_PAPER_URL_PREFIX}${id}`;
+}
+
+function completeOpenPaperUrlPrefix(value) {
+  const rawValue = String(value || "");
+  const leadingWhitespace = rawValue.match(/^\s*/)?.[0] || "";
+  const trimmedStartValue = rawValue.trimStart();
+  const lowerValue = trimmedStartValue.toLowerCase();
+
+  if (!lowerValue || /\s/.test(lowerValue)) {
+    return "";
+  }
+
+  if (
+    OPEN_PAPER_URL_PREFIX.startsWith(lowerValue) &&
+    OPEN_PAPER_URL_PREFIX !== trimmedStartValue
+  ) {
+    return `${leadingWhitespace}${OPEN_PAPER_URL_PREFIX}`;
+  }
+
+  for (const alias of OPEN_PAPER_URL_PREFIX_ALIASES) {
+    if (alias.startsWith(lowerValue)) {
+      return `${leadingWhitespace}${OPEN_PAPER_URL_PREFIX}`;
+    }
+
+    if (lowerValue.startsWith(alias)) {
+      return `${leadingWhitespace}${OPEN_PAPER_URL_PREFIX}${trimmedStartValue.slice(alias.length)}`;
+    }
+  }
+
+  return "";
+}
+
+function getLatexProjectMenuId(projectId) {
+  return `tex:${projectId}`;
+}
+
+function formatBackupStatus(backupState, papers, latexProjects = []) {
   if (!backupState?.supported) {
     return "No automatic backup file selected.";
   }
@@ -465,8 +778,14 @@ function formatBackupStatus(backupState, papers) {
   const mirroredIds = new Set(
     Array.isArray(backupState.lastMirroredPaperIds) ? backupState.lastMirroredPaperIds : []
   );
+  const mirroredProjectIds = new Set(
+    Array.isArray(backupState.lastMirroredLatexProjectIds)
+      ? backupState.lastMirroredLatexProjectIds
+      : []
+  );
   const includedCount = papers.filter((paper) => mirroredIds.has(paper.id)).length;
-  return `${includedCount} of ${papers.length} papers included in backup.`;
+  const includedProjectCount = latexProjects.filter((project) => mirroredProjectIds.has(project.id)).length;
+  return `${includedCount} of ${papers.length} papers and ${includedProjectCount} of ${latexProjects.length} LaTeX projects included in backup.`;
 }
 
 function SettingsIcon() {
