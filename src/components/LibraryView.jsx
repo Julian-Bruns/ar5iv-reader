@@ -1,6 +1,10 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import BookmarkSetupPanel from "./BookmarkSetupPanel";
 import SyncPanel from "./SyncPanel";
+import { buildArxivPdfUrl } from "../lib/arxiv";
+import { fetchBlobWithFallback } from "../lib/fetchPaper";
+import { getCachedPdfRender } from "../lib/pdfRenderCache";
+import { loadPdfJs } from "./pdfJsClient";
 
 const OPEN_PAPER_URL_PREFIX = "https://arxiv.org/abs/";
 const OPEN_PAPER_URL_PREFIX_ALIASES = [
@@ -14,6 +18,11 @@ const OPEN_PAPER_URL_PREFIX_ALIASES = [
 ];
 const OPEN_PAPER_SUGGESTION_LIMIT = 6;
 const LIBRARY_PAGE_IDS = ["home", "browse", "library", "notes", "edit"];
+const PAPER_THUMBNAIL_WIDTH = 420;
+const PAPER_THUMBNAIL_CACHE_LIMIT = 60;
+const PAPER_THUMBNAIL_INTERSECTION_MARGIN = "360px 0px";
+const paperThumbnailCache = new Map();
+const paperThumbnailRequests = new Map();
 
 export default function LibraryView({
   papers,
@@ -61,6 +70,7 @@ export default function LibraryView({
   const [sortDirection, setSortDirection] = useState("desc");
   const [openPaperMenuId, setOpenPaperMenuId] = useState("");
   const [activeLibraryPage, setActiveLibraryPage] = useState(() => getInitialLibraryPage());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     setInputValue(defaultInput || "");
@@ -661,12 +671,27 @@ export default function LibraryView({
   return (
     <>
       <div className="library-shell">
-        <div className="library-layout">
-          <aside className="library-sidebar" aria-label="Workspace navigation">
+        <div
+          className={`library-layout${
+            sidebarCollapsed ? " library-layout--sidebar-collapsed" : ""
+          }`}
+        >
+          <aside
+            className={`library-sidebar${
+              sidebarCollapsed ? " library-sidebar--collapsed" : ""
+            }`}
+            aria-label="Workspace navigation"
+          >
             <div className="library-brand">
-              <div className="library-brand-mark" aria-hidden="true">
-                ar
-              </div>
+              <button
+                className="library-brand-button"
+                type="button"
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                onClick={() => setSidebarCollapsed((current) => !current)}
+              >
+                <img src="/icons/icon.svg" alt="" aria-hidden="true" />
+              </button>
               <div>
                 <p className="dashboard-subtext">ar5iv Reader</p>
                 <h1>Workspace</h1>
@@ -681,7 +706,9 @@ export default function LibraryView({
                   }`}
                   type="button"
                   key={item.id}
+                  aria-label={item.label}
                   aria-current={activeLibraryPage === item.id ? "page" : undefined}
+                  title={sidebarCollapsed ? item.label : undefined}
                   onClick={() => navigateLibraryPage(item.id)}
                 >
                   <LibraryNavIcon id={item.id} />
@@ -808,7 +835,8 @@ function filterOpenPaperSuggestions(suggestions, inputValue) {
     .map((suggestion) => ({
       id: String(suggestion?.id || "").trim(),
       title: String(suggestion?.title || suggestion?.id || "").trim(),
-      url: String(suggestion?.url || "").trim()
+      url: String(suggestion?.url || "").trim(),
+      searchedAt: String(suggestion?.searchedAt || "").trim()
     }))
     .filter((suggestion) => {
       if (!suggestion.id || seenIds.has(suggestion.id)) {
@@ -935,13 +963,24 @@ function RecentPaperPreview({ suggestion, onOpen }) {
   const url = getOpenPaperSuggestionUrl(suggestion);
 
   return (
-    <article className="paper-preview-card">
+    <article className="paper-preview-card paper-preview-card--paper">
       <button className="paper-preview-main" type="button" onClick={onOpen}>
-        <PaperPreviewThumbnail label="arXiv" />
+        <PaperPreviewThumbnail
+          label="arXiv"
+          paperId={suggestion.id}
+          pdfUrl={buildArxivPdfUrl(suggestion.id)}
+          title={title}
+        />
         <span className="paper-preview-copy">
+          <span className="paper-preview-kicker">Recently viewed</span>
           <span className="paper-preview-title">{title}</span>
-          <span className="paper-id">{suggestion.id}</span>
-          <span className="paper-meta">{url}</span>
+          <span className="paper-preview-meta">
+            <span className="paper-id">{suggestion.id}</span>
+            {suggestion.searchedAt ? (
+              <span>Viewed {formatDateTime(suggestion.searchedAt)}</span>
+            ) : null}
+          </span>
+          <span className="paper-preview-url">{url}</span>
         </span>
       </button>
     </article>
@@ -951,16 +990,28 @@ function RecentPaperPreview({ suggestion, onOpen }) {
 function SavedPaperPreview({ paper, menuOpen, onOpen, onToggleMenu, onExport, onDelete }) {
   const title = paper.title || paper.id || "Untitled paper";
   const previewLabel = paper.contentType === "pdf" ? "PDF" : "HTML";
+  const previewPdfUrl = paper.pdfUrl || buildArxivPdfUrl(paper.id);
 
   return (
-    <article className={`paper-preview-card${menuOpen ? " paper-row--menu-open" : ""}`}>
+    <article
+      className={`paper-preview-card paper-preview-card--paper${
+        menuOpen ? " paper-row--menu-open" : ""
+      }`}
+    >
       <button className="paper-preview-main" type="button" onClick={onOpen}>
-        <PaperPreviewThumbnail label={previewLabel} />
+        <PaperPreviewThumbnail
+          label={previewLabel}
+          paperId={paper.id}
+          pdfUrl={previewPdfUrl}
+          pdfFingerprint={paper.pdfFingerprint}
+          title={title}
+        />
         <span className="paper-preview-copy">
+          <span className="paper-preview-kicker">Saved paper</span>
           <span className="paper-preview-title">{title}</span>
-          <span className="paper-id">{paper.id}</span>
-          <span className="paper-meta">
-            Updated {formatDateTime(paper.updatedAt || paper.savedAt)}
+          <span className="paper-preview-meta">
+            <span className="paper-id">{paper.id}</span>
+            <span>Updated {formatDateTime(paper.updatedAt || paper.savedAt)}</span>
           </span>
         </span>
       </button>
@@ -991,17 +1042,17 @@ function SavedPaperPreview({ paper, menuOpen, onOpen, onToggleMenu, onExport, on
 }
 
 function LatexProjectPreview({ project, menuOpen, onOpen, onToggleMenu, onDelete }) {
-  const title = project.title || project.id || "Untitled project";
+  const title = project.title || "Untitled project";
 
   return (
     <article className={`paper-preview-card${menuOpen ? " paper-row--menu-open" : ""}`}>
       <button className="paper-preview-main" type="button" onClick={onOpen}>
-        <PaperPreviewThumbnail label="TeX" />
+        <PaperPreviewPlaceholder label="TeX" />
         <span className="paper-preview-copy">
+          <span className="paper-preview-kicker">Draft</span>
           <span className="paper-preview-title">{title}</span>
-          <span className="paper-id">{project.id}</span>
-          <span className="paper-meta">
-            Updated {formatDateTime(project.updatedAt || project.createdAt)}
+          <span className="paper-preview-meta">
+            <span>Updated {formatDateTime(project.updatedAt || project.createdAt)}</span>
           </span>
         </span>
       </button>
@@ -1028,15 +1079,289 @@ function LatexProjectPreview({ project, menuOpen, onOpen, onToggleMenu, onDelete
   );
 }
 
-function PaperPreviewThumbnail({ label }) {
+function PaperPreviewThumbnail({ label, paperId = "", pdfUrl = "", pdfFingerprint = "", title = "" }) {
+  const thumbnailRef = useRef(null);
+  const cacheKey = buildPaperThumbnailCacheKey({ paperId, pdfUrl, pdfFingerprint });
+  const [isVisible, setIsVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  const [thumbnailDataUrl, setThumbnailDataUrl] = useState(() =>
+    getMemoryCachedPaperThumbnail(cacheKey)
+  );
+  const [thumbnailStatus, setThumbnailStatus] = useState(thumbnailDataUrl ? "ready" : "idle");
+
+  useEffect(() => {
+    const element = thumbnailRef.current;
+    if (!(element instanceof Element) || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+
+        setIsVisible(true);
+        observer.disconnect();
+      },
+      {
+        rootMargin: PAPER_THUMBNAIL_INTERSECTION_MARGIN
+      }
+    );
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [cacheKey]);
+
+  useEffect(() => {
+    const cached = getMemoryCachedPaperThumbnail(cacheKey);
+    setThumbnailDataUrl(cached);
+    setThumbnailStatus(cached ? "ready" : "idle");
+
+    if (!cacheKey || cached || !isVisible) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setThumbnailStatus("loading");
+    void loadPaperThumbnail({ cacheKey, paperId, pdfUrl, pdfFingerprint })
+      .then((dataUrl) => {
+        if (cancelled) {
+          return;
+        }
+
+        setThumbnailDataUrl(dataUrl);
+        setThumbnailStatus("ready");
+      })
+      .catch((error) => {
+        console.warn("Paper thumbnail render failed", paperId, error);
+        if (!cancelled) {
+          setThumbnailStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheKey, isVisible, paperId, pdfUrl, pdfFingerprint]);
+
+  return (
+    <span
+      className={`paper-preview-thumbnail paper-preview-thumbnail--document paper-preview-thumbnail--${thumbnailStatus}`}
+      aria-hidden="true"
+      ref={thumbnailRef}
+    >
+      {thumbnailDataUrl ? (
+        <img src={thumbnailDataUrl} alt="" decoding="async" loading="lazy" />
+      ) : (
+        <span className="paper-preview-placeholder">
+          <span className="paper-preview-label">{label}</span>
+          <span className="paper-preview-loading">
+            {thumbnailStatus === "error" ? "Preview unavailable" : "Loading preview"}
+          </span>
+        </span>
+      )}
+      {title ? <span className="paper-preview-thumbnail-title">{title}</span> : null}
+    </span>
+  );
+}
+
+function PaperPreviewPlaceholder({ label }) {
   return (
     <span className="paper-preview-thumbnail" aria-hidden="true">
       <span className="paper-preview-label">{label}</span>
-      <span className="paper-preview-line" />
-      <span className="paper-preview-line paper-preview-line--short" />
-      <span className="paper-preview-line" />
+      <span className="paper-preview-glyph" />
     </span>
   );
+}
+
+function buildPaperThumbnailCacheKey({ paperId = "", pdfUrl = "", pdfFingerprint = "" }) {
+  const normalizedPaperId = String(paperId || "").trim();
+  const normalizedPdfUrl = String(pdfUrl || "").trim();
+  if (!normalizedPaperId || !normalizedPdfUrl) {
+    return "";
+  }
+
+  return [String(pdfFingerprint || "").trim(), normalizedPaperId, normalizedPdfUrl].join("::");
+}
+
+function getMemoryCachedPaperThumbnail(cacheKey) {
+  if (!cacheKey || !paperThumbnailCache.has(cacheKey)) {
+    return "";
+  }
+
+  const dataUrl = paperThumbnailCache.get(cacheKey);
+  paperThumbnailCache.delete(cacheKey);
+  paperThumbnailCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
+
+function rememberPaperThumbnail(cacheKey, dataUrl) {
+  if (!cacheKey || !dataUrl) {
+    return;
+  }
+
+  paperThumbnailCache.set(cacheKey, dataUrl);
+  while (paperThumbnailCache.size > PAPER_THUMBNAIL_CACHE_LIMIT) {
+    paperThumbnailCache.delete(paperThumbnailCache.keys().next().value);
+  }
+}
+
+async function loadPaperThumbnail({ cacheKey, paperId, pdfUrl, pdfFingerprint }) {
+  const cached = getMemoryCachedPaperThumbnail(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const activeRequest = paperThumbnailRequests.get(cacheKey);
+  if (activeRequest) {
+    return activeRequest;
+  }
+
+  const request = renderPaperThumbnailDataUrl({ paperId, pdfUrl, pdfFingerprint })
+    .then((dataUrl) => {
+      rememberPaperThumbnail(cacheKey, dataUrl);
+      return dataUrl;
+    })
+    .finally(() => {
+      paperThumbnailRequests.delete(cacheKey);
+    });
+
+  paperThumbnailRequests.set(cacheKey, request);
+  return request;
+}
+
+async function renderPaperThumbnailDataUrl({ paperId, pdfUrl, pdfFingerprint }) {
+  if (pdfFingerprint) {
+    const cachedRender = await getCachedPdfRender({
+      pdfFingerprint,
+      pageNumber: 1,
+      quality: "low"
+    }).catch(() => null);
+    if (cachedRender?.blob instanceof Blob) {
+      return rasterBlobToThumbnailDataUrl(cachedRender.blob);
+    }
+  }
+
+  try {
+    return await renderPdfUrlThumbnail(pdfUrl);
+  } catch (error) {
+    console.warn("Direct PDF thumbnail render failed", paperId, error);
+  }
+
+  const { blob } = await fetchBlobWithFallback(pdfUrl);
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await renderPdfUrlThumbnail(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function renderPdfUrlThumbnail(pdfUrl) {
+  const pdfjs = await loadPdfJs();
+  let loadingTask = null;
+  let documentNode = null;
+
+  try {
+    loadingTask = pdfjs.getDocument({
+      url: pdfUrl,
+      disableAutoFetch: true,
+      enableHWA: true
+    });
+    documentNode = await loadingTask.promise;
+    const page = await documentNode.getPage(1);
+    const viewport = getThumbnailViewport(page, PAPER_THUMBNAIL_WIDTH);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", {
+      alpha: false
+    });
+    if (!context) {
+      throw new Error("Canvas rendering context unavailable.");
+    }
+
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({
+      canvasContext: context,
+      viewport
+    }).promise;
+    page.cleanup?.();
+    return canvas.toDataURL("image/webp", 0.76);
+  } finally {
+    try {
+      documentNode?.destroy?.();
+    } catch {
+      // Best-effort cleanup for completed thumbnail renders.
+    }
+    try {
+      loadingTask?.destroy?.();
+    } catch {
+      // Best-effort cleanup for cancelled thumbnail loading tasks.
+    }
+  }
+}
+
+function getThumbnailViewport(page, targetWidth) {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale =
+    baseViewport.width > 0 ? targetWidth / baseViewport.width : 0.64;
+  return page.getViewport({
+    scale: Math.max(0.2, Math.min(scale, 1.1))
+  });
+}
+
+async function rasterBlobToThumbnailDataUrl(blob) {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      return imageSourceToThumbnailDataUrl(bitmap, bitmap.width, bitmap.height);
+    } finally {
+      bitmap.close?.();
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => {
+      try {
+        resolve(imageSourceToThumbnailDataUrl(image, image.naturalWidth, image.naturalHeight));
+      } catch (error) {
+        reject(error);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Cached thumbnail image could not be decoded."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function imageSourceToThumbnailDataUrl(source, sourceWidth, sourceHeight) {
+  const width = Math.max(1, Math.min(PAPER_THUMBNAIL_WIDTH, Number(sourceWidth || 0)));
+  const height = Math.max(
+    1,
+    Math.round(width * (Number(sourceHeight || 1) / Math.max(1, Number(sourceWidth || 1))))
+  );
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", {
+    alpha: false
+  });
+  if (!context) {
+    throw new Error("Canvas rendering context unavailable.");
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, 0, 0, width, height);
+  return canvas.toDataURL("image/webp", 0.76);
 }
 
 function LibraryNavIcon({ id }) {

@@ -35,6 +35,7 @@ import {
 import {
   createLatexProjectDraft,
   exportLatexProjectHtml,
+  exportLatexProjectPdfBuild,
   exportLatexProjectSource
 } from "./lib/latexProjects";
 import { appVersion as APP_VERSION, buildId as BUILD_ID } from "./lib/appBuild";
@@ -1745,6 +1746,16 @@ export default function App() {
     }
   }
 
+  function handleExportLatexProjectPdfBuild(project) {
+    try {
+      const { blob, filename } = exportLatexProjectPdfBuild(project);
+      downloadBlob(blob, filename);
+      showToast("Downloaded PDF build kit. Run make pdf to compile.");
+    } catch (error) {
+      showToast(stringifyError(error));
+    }
+  }
+
   async function handleExportLibrary() {
     try {
       const { payload } = await createLibraryBackup(APP_VERSION, BUILD_ID);
@@ -2518,6 +2529,7 @@ export default function App() {
           onDelete={handleDeleteLatexProject}
           onExportSource={handleExportLatexProjectSource}
           onExportHtml={handleExportLatexProjectHtml}
+          onExportPdfBuild={handleExportLatexProjectPdfBuild}
           showToast={showToast}
         />
       ) : showReader ? (

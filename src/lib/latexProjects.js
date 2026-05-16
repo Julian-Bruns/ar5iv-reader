@@ -5,7 +5,7 @@ export const LATEX_TEMPLATE_SOURCE = String.raw`\documentclass{article}
 
 \title{Untitled Research Note}
 \author{}
-\date{\today}
+\date{}
 
 \newtheorem{theorem}{Theorem}
 \newtheorem{lemma}{Lemma}
@@ -13,37 +13,6 @@ export const LATEX_TEMPLATE_SOURCE = String.raw`\documentclass{article}
 
 \begin{document}
 \maketitle
-
-\begin{abstract}
-State the problem, the main contribution, and the proof idea.
-\end{abstract}
-
-\section{Introduction}
-Write the motivation and related context here. Inline math such as $f \colon X \to Y$ renders in the preview.
-
-\section{Main Result}
-\begin{theorem}
-Let $G$ be a finite group. If $H \leq G$, then
-\[
-  |G| = [G:H]|H|.
-\]
-\end{theorem}
-
-\begin{proof}
-The left cosets of $H$ partition $G$, and each coset has cardinality $|H|$.
-\end{proof}
-
-\section{Next Steps}
-\begin{itemize}
-  \item Add definitions and assumptions.
-  \item Track citations with \cite{sample}.
-  \item Export the source when you are ready to compile elsewhere.
-\end{itemize}
-
-\begin{thebibliography}{9}
-\bibitem{sample}
-Author. Title. Journal, year.
-\end{thebibliography}
 
 \end{document}
 `;
@@ -195,6 +164,43 @@ export function exportLatexProjectHtml(project, rendered) {
     blob: new Blob([html], {
       type: "text/html;charset=utf-8"
     })
+  };
+}
+
+export function exportLatexProjectPdfBuild(project) {
+  const title = String(project?.title || "latex-project").trim() || "latex-project";
+  const slug = slugifyFilename(title);
+  const source = String(project?.source || "");
+  const files = [
+    {
+      path: "main.tex",
+      contents: source
+    },
+    {
+      path: "Makefile",
+      contents: buildPdfMakefile()
+    },
+    {
+      path: "latexmkrc",
+      contents: buildLatexmkRc()
+    },
+    {
+      path: "compile-pdf.sh",
+      contents: buildCompileScript()
+    },
+    {
+      path: ".gitignore",
+      contents: buildPdfGitignore()
+    },
+    {
+      path: "README.md",
+      contents: buildPdfBuildReadme(title)
+    }
+  ];
+
+  return {
+    filename: `${slug}-pdf-build.zip`,
+    blob: createZipBlob(files)
   };
 }
 
@@ -980,4 +986,248 @@ function slugifyFilename(input) {
       .replace(/^-+|-+$/g, "")
       .slice(0, 72) || "latex-project"
   );
+}
+
+function buildPdfMakefile() {
+  return [
+    "TEX ?= main.tex",
+    "",
+    ".PHONY: pdf tectonic watch clean",
+    "",
+    "pdf:",
+    "\tlatexmk -pdf -interaction=nonstopmode -halt-on-error $(TEX)",
+    "",
+    "tectonic:",
+    "\ttectonic --keep-logs --synctex $(TEX)",
+    "",
+    "watch:",
+    "\tlatexmk -pdf -pvc -interaction=nonstopmode -halt-on-error $(TEX)",
+    "",
+    "clean:",
+    "\tlatexmk -C $(TEX)",
+    ""
+  ].join("\n");
+}
+
+function buildLatexmkRc() {
+  return [
+    "$pdf_mode = 1;",
+    "$interaction = 'nonstopmode';",
+    "$halt_on_error = 1;",
+    ""
+  ].join("\n");
+}
+
+function buildCompileScript() {
+  return [
+    "#!/usr/bin/env sh",
+    "set -eu",
+    "",
+    'if command -v latexmk >/dev/null 2>&1; then',
+    '  latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex',
+    'elif command -v tectonic >/dev/null 2>&1; then',
+    '  tectonic --keep-logs --synctex main.tex',
+    "else",
+    '  echo "Install latexmk or tectonic to compile main.tex into a PDF." >&2',
+    "  exit 1",
+    "fi",
+    ""
+  ].join("\n");
+}
+
+function buildPdfGitignore() {
+  return [
+    "*.aux",
+    "*.bbl",
+    "*.bcf",
+    "*.blg",
+    "*.fdb_latexmk",
+    "*.fls",
+    "*.log",
+    "*.out",
+    "*.run.xml",
+    "*.synctex.gz",
+    "*.toc",
+    ""
+  ].join("\n");
+}
+
+function buildPdfBuildReadme(title) {
+  return [
+    `# ${title} PDF build`,
+    "",
+    "This bundle contains the LaTeX source exported from ar5iv Reader and the small build files needed to compile a collaborator-facing PDF.",
+    "",
+    "## Compile",
+    "",
+    "Run one of these commands from this folder:",
+    "",
+    "```sh",
+    "make pdf",
+    "# or",
+    "sh ./compile-pdf.sh",
+    "# or, with Tectonic installed",
+    "make tectonic",
+    "```",
+    "",
+    "The default target uses `latexmk` and writes `main.pdf`. The `tectonic` target is useful for simpler local installations and CI images that already ship Tectonic.",
+    "",
+    "## Pipeline hook",
+    "",
+    "Use `make pdf` as the CI build step and upload `main.pdf` as the PDF artifact.",
+    ""
+  ].join("\n");
+}
+
+function createZipBlob(files, date = new Date()) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  const timestamp = toZipDateTime(date);
+  let offset = 0;
+
+  for (const file of files) {
+    const path = normalizeZipPath(file.path);
+    const nameBytes = encoder.encode(path);
+    const dataBytes = encodeZipFileContents(file.contents, encoder);
+    const crc = crc32(dataBytes);
+    const localHeader = createZipLocalHeader({
+      nameBytes,
+      dataBytes,
+      crc,
+      timestamp
+    });
+    const centralHeader = createZipCentralHeader({
+      nameBytes,
+      dataBytes,
+      crc,
+      timestamp,
+      offset
+    });
+
+    localParts.push(localHeader, dataBytes);
+    centralParts.push(centralHeader);
+    offset += localHeader.length + dataBytes.length;
+  }
+
+  const centralDirectoryOffset = offset;
+  const centralDirectorySize = centralParts.reduce((total, part) => total + part.length, 0);
+  const endRecord = createZipEndRecord({
+    fileCount: files.length,
+    centralDirectorySize,
+    centralDirectoryOffset
+  });
+
+  return new Blob([...localParts, ...centralParts, endRecord], {
+    type: "application/zip"
+  });
+}
+
+function createZipLocalHeader({ nameBytes, dataBytes, crc, timestamp }) {
+  const header = new Uint8Array(30 + nameBytes.length);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 0x0800, true);
+  view.setUint16(8, 0, true);
+  view.setUint16(10, timestamp.time, true);
+  view.setUint16(12, timestamp.date, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, dataBytes.length, true);
+  view.setUint32(22, dataBytes.length, true);
+  view.setUint16(26, nameBytes.length, true);
+  view.setUint16(28, 0, true);
+  header.set(nameBytes, 30);
+  return header;
+}
+
+function createZipCentralHeader({ nameBytes, dataBytes, crc, timestamp, offset }) {
+  const header = new Uint8Array(46 + nameBytes.length);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint16(8, 0x0800, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, timestamp.time, true);
+  view.setUint16(14, timestamp.date, true);
+  view.setUint32(16, crc, true);
+  view.setUint32(20, dataBytes.length, true);
+  view.setUint32(24, dataBytes.length, true);
+  view.setUint16(28, nameBytes.length, true);
+  view.setUint16(30, 0, true);
+  view.setUint16(32, 0, true);
+  view.setUint16(34, 0, true);
+  view.setUint16(36, 0, true);
+  view.setUint32(38, 0, true);
+  view.setUint32(42, offset, true);
+  header.set(nameBytes, 46);
+  return header;
+}
+
+function createZipEndRecord({ fileCount, centralDirectorySize, centralDirectoryOffset }) {
+  const record = new Uint8Array(22);
+  const view = new DataView(record.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(4, 0, true);
+  view.setUint16(6, 0, true);
+  view.setUint16(8, fileCount, true);
+  view.setUint16(10, fileCount, true);
+  view.setUint32(12, centralDirectorySize, true);
+  view.setUint32(16, centralDirectoryOffset, true);
+  view.setUint16(20, 0, true);
+  return record;
+}
+
+function encodeZipFileContents(contents, encoder) {
+  if (contents instanceof Uint8Array) {
+    return contents;
+  }
+  return encoder.encode(String(contents ?? ""));
+}
+
+function normalizeZipPath(path) {
+  return String(path || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/");
+}
+
+function toZipDateTime(date) {
+  const value = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date();
+  const year = Math.max(1980, value.getFullYear());
+  return {
+    time: (value.getHours() << 11) | (value.getMinutes() << 5) | Math.floor(value.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((value.getMonth() + 1) << 5) | value.getDate()
+  };
+}
+
+function crc32(bytes) {
+  const table = getCrc32Table();
+  let crc = 0xffffffff;
+
+  for (const byte of bytes) {
+    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+let crc32Table = null;
+
+function getCrc32Table() {
+  if (crc32Table) {
+    return crc32Table;
+  }
+
+  crc32Table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    crc32Table[index] = value >>> 0;
+  }
+
+  return crc32Table;
 }

@@ -12,6 +12,7 @@ ar5iv Reader is a PWA for reading arXiv papers in a cleaner mobile-friendly inte
 - Copy TeX from rendered math with a simple click.
 - Dictate theorem notes with on-device Whisper transcription and browser-side LaTeX interpretation.
 - Save papers to your local library for later reading.
+- Draft LaTeX projects and export a PDF build kit for local or CI compilation.
 - Sync your saved papers and library state to other paired devices on the same network.
 
 ## Install It
@@ -39,6 +40,10 @@ Rendered math is interactive. Click an equation to copy its underlying TeX witho
 ## Save Papers
 
 You can save papers into your library for later reading. This keeps the papers you care about in one place and makes the reader useful as a lightweight personal archive rather than just a transient viewer.
+
+## Edit LaTeX Projects
+
+LaTeX projects use the browser for source editing and fast HTML preview. When you need a collaborator-facing PDF or a pipeline artifact, use `Compile PDF` in the editor to download a build kit with `main.tex`, `Makefile`, `latexmkrc`, and a shell compile script. Run `make pdf` from that folder to build `main.pdf` with `latexmk`, or wire the same target into CI.
 
 ## Dictate Notes
 

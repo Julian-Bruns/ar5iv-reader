@@ -12,6 +12,9 @@ describe("LibraryView theorem notes integration", () => {
 
     expect(source).toMatch(/LIBRARY_PAGE_IDS = \["home", "browse", "library", "notes", "edit"\]/);
     expect(source).toMatch(/const \[activeLibraryPage, setActiveLibraryPage\]/);
+    expect(source).toMatch(/const \[sidebarCollapsed, setSidebarCollapsed\]/);
+    expect(source).toMatch(/src="\/icons\/icon\.svg"/);
+    expect(source).toMatch(/Collapse sidebar/);
     expect(source).toMatch(/LibraryNavIcon/);
     expect(source).toMatch(/Paper Gallery/);
     expect(source).toMatch(/setLibraryPageInUrl/);
@@ -41,6 +44,17 @@ describe("LibraryView theorem notes integration", () => {
     expect(source).toMatch(/https:\/\/arxiv\.org\/abs\//);
   });
 
+  it("renders paper previews from actual low-resolution PDF page images", () => {
+    const source = fs.readFileSync(libraryViewPath, "utf8");
+
+    expect(source).toMatch(/buildArxivPdfUrl/);
+    expect(source).toMatch(/loadPdfJs/);
+    expect(source).toMatch(/getCachedPdfRender/);
+    expect(source).toMatch(/renderPaperThumbnailDataUrl/);
+    expect(source).toMatch(/paper-preview-thumbnail--document/);
+    expect(source).toMatch(/canvas\.toDataURL\("image\/webp", 0\.76\)/);
+  });
+
   it("renders a LaTeX project repository with project creation and opening actions", () => {
     const source = fs.readFileSync(libraryViewPath, "utf8");
 
@@ -51,6 +65,8 @@ describe("LibraryView theorem notes integration", () => {
     expect(source).toMatch(/onCreateLatexProject/);
     expect(source).toMatch(/onOpenLatexProject\(project\.id\)/);
     expect(source).toMatch(/onDeleteLatexProject\(project\.id\)/);
+    expect(source).toMatch(/const title = project\.title \|\| "Untitled project"/);
+    expect(source).not.toMatch(/<span className="paper-id">\{project\.id\}<\/span>/);
   });
 
   it("keeps backup and URL-list restore on one upload control", () => {

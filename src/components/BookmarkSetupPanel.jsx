@@ -40,7 +40,7 @@ export default function BookmarkSetupPanel({
 
   function handleBookmarkletClick(event) {
     event.preventDefault();
-    setCopyMessage("Drag this bookmark into the bookmarks bar. Do not click it here.");
+    void handleCopyBookmarklet();
   }
 
   function handleBookmarkletDragStart(event) {
@@ -75,8 +75,8 @@ export default function BookmarkSetupPanel({
           On phones, open an arXiv page, tap Share, then choose ar5iv Reader.
         </p>
         <p>
-          On desktop, drag the bookmark below into the bookmarks bar or copy it into a
-          bookmark URL:
+          On desktop, drag the bookmark below into the bookmarks bar or click it to
+          copy its URL:
         </p>
         <div className="setup-actions setup-actions--bookmarklet">
           <div className="bookmarklet-drag-stage">
@@ -85,12 +85,13 @@ export default function BookmarkSetupPanel({
               <span />
               <span />
             </div>
+            <BookmarkletDragArrow />
             <a
               className="bookmarklet-chip"
               draggable="true"
               href={bookmarkletHref}
-              title="Drag to your bookmarks bar"
-              aria-label="Drag Open in ar5iv Reader to your bookmarks bar"
+              title="Drag to your bookmarks bar or click to copy"
+              aria-label="Drag Open in ar5iv Reader to your bookmarks bar, or click to copy the bookmarklet"
               onClick={handleBookmarkletClick}
               onDragStart={handleBookmarkletDragStart}
             >
@@ -99,11 +100,11 @@ export default function BookmarkSetupPanel({
                 <BookmarkIcon />
               </span>
               <span className="bookmarklet-chip-label">Open in ar5iv Reader</span>
+              <span className="bookmarklet-copy-icon" aria-hidden="true">
+                <CopyIcon />
+              </span>
             </a>
           </div>
-          <button className="ghost-button" type="button" onClick={handleCopyBookmarklet}>
-            Copy Bookmark
-          </button>
         </div>
         <p>
           Later, open any <code>arxiv.org/abs/...</code> page and use that bookmark to
@@ -113,6 +114,24 @@ export default function BookmarkSetupPanel({
 
       {copyMessage ? <p className="banner">{copyMessage}</p> : null}
     </section>
+  );
+}
+
+function BookmarkletDragArrow() {
+  return (
+    <svg
+      className="bookmarklet-drag-arrow"
+      viewBox="0 0 80 56"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 48c30 0 50-12 50-36" />
+      <path d="m46 24 12-12 12 12" />
+    </svg>
   );
 }
 
@@ -130,6 +149,23 @@ function DragHandleIcon() {
       <circle cx="11" cy="12" r="1.4" />
       <circle cx="5" cy="18" r="1.4" />
       <circle cx="11" cy="18" r="1.4" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9 8.2V6.6c0-.9.7-1.6 1.6-1.6h6.8c.9 0 1.6.7 1.6 1.6v6.8c0 .9-.7 1.6-1.6 1.6h-1.6"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 10.6C5 9.7 5.7 9 6.6 9h6.8c.9 0 1.6.7 1.6 1.6v6.8c0 .9-.7 1.6-1.6 1.6H6.6c-.9 0-1.6-.7-1.6-1.6v-6.8Z"
+      />
     </svg>
   );
 }

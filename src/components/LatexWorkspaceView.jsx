@@ -30,18 +30,18 @@ const INSERT_SNIPPETS = [
 export default function LatexWorkspaceView({
   project,
   status,
-  busy,
   error,
   onBack,
   onSave,
-  onDelete,
   onExportSource,
   onExportHtml,
+  onExportPdfBuild,
   showToast
 }) {
   const textareaRef = useRef(null);
   const previewRef = useRef(null);
   const lastSavedFingerprintRef = useRef("");
+  const pendingProjectHydrationRef = useRef("");
   const saveRequestRef = useRef(0);
   const [title, setTitle] = useState(project?.title || "");
   const [source, setSource] = useState(project?.source || "");
@@ -50,6 +50,7 @@ export default function LatexWorkspaceView({
   const [layoutMode, setLayoutMode] = useState("split");
 
   useEffect(() => {
+    pendingProjectHydrationRef.current = project?.id || "";
     setTitle(project?.title || "");
     setSource(project?.source || "");
     lastSavedFingerprintRef.current = buildProjectFingerprint(project?.title, project?.source);
@@ -67,6 +68,13 @@ export default function LatexWorkspaceView({
     }
 
     const nextFingerprint = buildProjectFingerprint(title, source);
+    if (pendingProjectHydrationRef.current === project.id) {
+      if (nextFingerprint !== lastSavedFingerprintRef.current) {
+        return undefined;
+      }
+      pendingProjectHydrationRef.current = "";
+    }
+
     if (nextFingerprint === lastSavedFingerprintRef.current) {
       setAutosaveStatus("saved");
       return undefined;
@@ -74,13 +82,13 @@ export default function LatexWorkspaceView({
 
     setAutosaveStatus("unsaved");
     const timer = window.setTimeout(() => {
-      void saveProject("auto");
+      void saveProject();
     }, AUTOSAVE_DELAY_MS);
 
     return () => window.clearTimeout(timer);
   }, [title, source, project?.id, status]);
 
-  async function saveProject(mode = "manual") {
+  async function saveProject() {
     if (!project?.id || !onSave) {
       return null;
     }
@@ -98,9 +106,6 @@ export default function LatexWorkspaceView({
       if (saveRequestRef.current === requestId) {
         lastSavedFingerprintRef.current = buildProjectFingerprint(savedProject?.title || title, savedProject?.source || source);
         setAutosaveStatus("saved");
-      }
-      if (mode === "manual") {
-        showToast?.("LaTeX project saved.");
       }
       return savedProject;
     } catch (saveError) {
@@ -184,16 +189,18 @@ export default function LatexWorkspaceView({
           >
             <BackIcon />
           </button>
-          <input
-            className="latex-title-input"
-            type="text"
-            value={title}
-            aria-label="Project title"
-            onInput={(event) => setTitle(event.currentTarget.value)}
-          />
           <span className={`latex-save-state latex-save-state--${autosaveStatus}`}>
             {formatAutosaveStatus(autosaveStatus, dirty)}
           </span>
+        </div>
+
+        <div className="latex-insert-strip" role="toolbar" aria-label="Insert LaTeX snippets">
+          <p className="sync-label">Insert</p>
+          {INSERT_SNIPPETS.map((snippet) => (
+            <button className="ghost-button" type="button" key={snippet.label} onClick={() => insertSnippet(snippet)}>
+              {snippet.label}
+            </button>
+          ))}
         </div>
 
         <div className="latex-actions">
@@ -220,12 +227,13 @@ export default function LatexWorkspaceView({
             Render
           </button>
           <button
-            className="primary-button"
+            className="ghost-button"
             type="button"
-            disabled={busy || autosaveStatus === "saving"}
-            onClick={() => void saveProject("manual")}
+            title="Download PDF build kit"
+            onClick={() => onExportPdfBuild?.({ ...project, title, source })}
           >
-            {busy || autosaveStatus === "saving" ? "Saving..." : "Save"}
+            <PdfBuildIcon />
+            Compile PDF
           </button>
           <div className="reader-menu-shell">
             <button className="icon-button icon-button--menu" type="button" aria-label="Export source" onClick={() => onExportSource?.({ ...project, title, source })}>
@@ -235,9 +243,6 @@ export default function LatexWorkspaceView({
           <button className="ghost-button" type="button" onClick={() => onExportHtml?.({ ...project, title, source }, rendered)}>
             Export HTML
           </button>
-          <button className="ghost-button ghost-button--danger" type="button" onClick={() => onDelete?.(project?.id)}>
-            Delete
-          </button>
         </div>
       </header>
 
@@ -245,17 +250,6 @@ export default function LatexWorkspaceView({
 
       <section className={`latex-workspace latex-workspace--${layoutMode}`}>
         <aside className="latex-sidebar">
-          <div className="latex-sidebar-section">
-            <p className="sync-label">Insert</p>
-            <div className="latex-snippet-grid">
-              {INSERT_SNIPPETS.map((snippet) => (
-                <button className="ghost-button" type="button" key={snippet.label} onClick={() => insertSnippet(snippet)}>
-                  {snippet.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="latex-sidebar-section">
             <p className="sync-label">Outline</p>
             {rendered.outline.length ? (
@@ -276,9 +270,9 @@ export default function LatexWorkspaceView({
             )}
           </div>
 
-          <div className="latex-sidebar-section">
-            <p className="sync-label">Log</p>
-            {visibleDiagnostics.length ? (
+          {visibleDiagnostics.length ? (
+            <div className="latex-sidebar-section">
+              <p className="sync-label">Log</p>
               <div className="latex-diagnostics">
                 {visibleDiagnostics.map((diagnostic, index) => (
                   <p className={`latex-diagnostic latex-diagnostic--${diagnostic.level}`} key={`${diagnostic.level}-${index}`}>
@@ -286,17 +280,11 @@ export default function LatexWorkspaceView({
                   </p>
                 ))}
               </div>
-            ) : (
-              <p className="paper-meta">No render issues.</p>
-            )}
-          </div>
+            </div>
+          ) : null}
         </aside>
 
         <section className="latex-editor-panel" aria-label="LaTeX source editor">
-          <div className="latex-panel-header">
-            <p className="sync-label">Source</p>
-            <p className="paper-meta">{source.length.toLocaleString()} chars</p>
-          </div>
           <textarea
             ref={textareaRef}
             className="latex-source-input"
@@ -307,10 +295,6 @@ export default function LatexWorkspaceView({
         </section>
 
         <section className="latex-preview-panel" aria-label="Rendered LaTeX preview">
-          <div className="latex-panel-header">
-            <p className="sync-label">Preview</p>
-            <p className="paper-meta">{visibleDiagnostics.length ? `${visibleDiagnostics.length} issues` : "Ready"}</p>
-          </div>
           <div
             ref={previewRef}
             className="latex-preview-surface"
@@ -353,6 +337,18 @@ function DownloadIcon() {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12" />
       <path strokeLinecap="round" strokeLinejoin="round" d="m7 10 5 5 5-5" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M5 21h14" />
+    </svg>
+  );
+}
+
+function PdfBuildIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h7l3 3v4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 3v4h4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3v18h10" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 14h5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 11l3 3-3 3" />
     </svg>
   );
 }
