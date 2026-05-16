@@ -2299,9 +2299,6 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <div className="ambient ambient--one" />
-      <div className="ambient ambient--two" />
-
       {showReader ? (
         <ReaderView
           tabs={openTabs}

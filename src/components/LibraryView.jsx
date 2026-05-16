@@ -102,18 +102,28 @@ export default function LibraryView({
     <>
       <div className="library-shell">
         <header className="dashboard-header">
-          <div>
-            <p className="dashboard-subtext">copying math formulas has never been easier</p>
+          <div className="dashboard-copy">
+            <p className="dashboard-subtext">arXiv papers, notes, and offline sync</p>
             <h1>ar5iv Reader</h1>
           </div>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Open settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon />
-          </button>
+          <div className="dashboard-actions">
+            <div className="dashboard-stat" aria-label={`${papers.length} saved papers`}>
+              <strong>{papers.length}</strong>
+              <span>Papers</span>
+            </div>
+            <div className="dashboard-stat" aria-label={`${theoremNotes.length} saved notes`}>
+              <strong>{theoremNotes.length}</strong>
+              <span>Notes</span>
+            </div>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Open settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <SettingsIcon />
+            </button>
+          </div>
         </header>
 
         <section className="card form-card">
@@ -352,7 +362,7 @@ export default function LibraryView({
       {settingsOpen ? (
         <div className="settings-modal-backdrop" role="presentation">
           <section
-            className="card settings-modal"
+            className="settings-modal"
             role="dialog"
             aria-modal="true"
             aria-label="Settings"
